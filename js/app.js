@@ -114,7 +114,7 @@ function renderDashboard() {
   container.innerHTML = `
     <div class="fade-up">
       <!-- Company Hero -->
-      <div class="card" style="background:linear-gradient(135deg,#111318,#161a24);margin-bottom:24px;border-color:#2a3040;">
+      <div class="card" style="background:linear-gradient(135deg,#eff6ff,#eef2ff);margin-bottom:24px;border-color:#bfdbfe;">
         <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;">
           <div style="font-size:52px">${c.logo}</div>
           <div>
@@ -316,6 +316,7 @@ function buildOrgDirectory(data, canEdit) {
                   <div style="display:flex;gap:6px;">
                     <button class="btn btn-ghost btn-sm btn-icon" onclick="openEditUserModal('${u.id}')" title="Edit">✏️</button>
                     ${currentUser.role==='super_admin'?`<button class="btn btn-danger btn-sm btn-icon" onclick="toggleUserStatus('${u.id}')" title="Toggle">${u.active?'🔒':'🔓'}</button>`:''}
+                    ${currentUser.role==='super_admin'&&u.id!==currentUser.id?`<button class="btn btn-danger btn-sm btn-icon" onclick="deleteUser('${u.id}')" title="Delete">🗑️</button>`:''}
                   </div>
                 </td>` : ''}
               </tr>`;
@@ -328,6 +329,12 @@ function buildOrgDirectory(data, canEdit) {
 
 function buildOrgStructure(data, canEdit) {
   return `
+    ${canEdit ? `
+      <div style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;">
+        <button class="btn btn-primary btn-sm" onclick="openDivisionModal()">+ Add Division</button>
+        <button class="btn btn-ghost btn-sm" onclick="openDepartmentModal()">+ Add Department</button>
+      </div>
+    ` : ''}
     <div class="grid-2" style="gap:24px;">
       ${data.divisions.map(div => {
         const depts = data.departments.filter(d => d.divisionId === div.id);
@@ -338,15 +345,27 @@ function buildOrgStructure(data, canEdit) {
                 <div class="card-title">${div.name}</div>
                 <div style="font-size:12px;color:var(--text-3)">${div.description}</div>
               </div>
-              ${canEdit ? `<button class="btn btn-ghost btn-sm btn-icon" title="Edit">✏️</button>` : ''}
+              ${canEdit ? `
+                <div style="display:flex;gap:6px;">
+                  <button class="btn btn-ghost btn-sm btn-icon" onclick="openDivisionModal('${div.id}')" title="Edit Division">✏️</button>
+                  <button class="btn btn-danger btn-sm btn-icon" onclick="deleteDivision('${div.id}')" title="Delete Division">🗑️</button>
+                </div>
+              ` : ''}
             </div>
             ${depts.map(dept => {
               const members = data.users.filter(u => u.department === dept.name);
               return `
-                <div style="background:var(--bg-surface);border-radius:var(--radius);padding:12px;margin-bottom:10px;">
+                <div style="background:var(--bg-base);border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin-bottom:10px;">
                   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-                    <span style="font-size:13px;font-weight:600">${dept.name}</span>
-                    <span class="badge badge-muted">${members.length} members</span>
+                    <span style="font-size:13px;font-weight:600;color:var(--text-1)">${dept.name}</span>
+                    <div style="display:flex;align-items:center;gap:6px;">
+                      <span class="badge badge-muted">${members.length} members</span>
+                      ${canEdit ? `
+                        <button class="btn btn-ghost btn-sm btn-icon" onclick="openDepartmentModal('${dept.id}')" title="Edit Dept" style="padding:3px 6px;font-size:11px;">✏️</button>
+                        <button class="btn btn-ghost btn-sm btn-icon" onclick="openAssignMemberModal('${dept.id}')" title="Assign Member" style="padding:3px 6px;font-size:11px;">👤+</button>
+                        <button class="btn btn-danger btn-sm btn-icon" onclick="deleteDepartment('${dept.id}')" title="Delete Dept" style="padding:3px 6px;font-size:11px;">🗑️</button>
+                      ` : ''}
+                    </div>
                   </div>
                   <div style="display:flex;gap:6px;flex-wrap:wrap;">
                     ${members.map(m=>`<div class="avatar" title="${m.name}" style="width:28px;height:28px;font-size:10px">${m.avatar}</div>`).join('')}
@@ -355,11 +374,178 @@ function buildOrgStructure(data, canEdit) {
                 </div>
               `;
             }).join('')}
+            ${canEdit ? `
+              <div style="border:1px dashed var(--border-2);border-radius:var(--radius);padding:10px;text-align:center;cursor:pointer;color:var(--text-3);font-size:12px;"
+                onclick="openDepartmentModal(null, '${div.id}')">+ Add Department to ${div.name}</div>
+            ` : ''}
           </div>
         `;
       }).join('')}
+      ${canEdit ? `
+        <div class="card" style="border-style:dashed;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;min-height:120px;cursor:pointer;" onclick="openDivisionModal()">
+          <div style="font-size:28px;color:var(--text-3)">⊕</div>
+          <div style="color:var(--text-3);font-size:13px">Add New Division</div>
+        </div>
+      ` : ''}
     </div>
   `;
+}
+
+// ─── Division Modal ───────────────────────────
+function openDivisionModal(editId = null) {
+  const data = Store.get();
+  const div = editId ? data.divisions.find(d => d.id === editId) : null;
+  document.getElementById('modal-title').textContent = editId ? 'Edit Division' : 'Add Division';
+  document.getElementById('modal-confirm').textContent = editId ? '✓ Save' : '✓ Create';
+  document.getElementById('modal-body').innerHTML = `
+    <div class="form-row">
+      <div class="form-field"><label>Division Name *</label><input id="dv-name" value="${div?.name||''}" placeholder="e.g. Technology"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-field"><label>Description</label><input id="dv-desc" value="${div?.description||''}" placeholder="e.g. Engineering, Design & Product"></div>
+    </div>
+  `;
+  document.getElementById('modal-confirm').onclick = () => {
+    const name = document.getElementById('dv-name').value.trim();
+    if (!name) { H.notify('Division name required', 'error'); return; }
+    Store.set(data => {
+      if (editId) {
+        const d = data.divisions.find(x => x.id === editId);
+        if (d) { d.name = name; d.description = document.getElementById('dv-desc').value; }
+      } else {
+        data.divisions.push({ id: H.uid(), name, description: document.getElementById('dv-desc').value });
+      }
+      return data;
+    });
+    closeModal();
+    H.notify(editId ? 'Division updated!' : 'Division created!', 'success');
+    renderOrganization();
+    document.querySelector('.tab-btn:nth-child(3)')?.click();
+  };
+  openModal();
+}
+
+function deleteDivision(divId) {
+  const data = Store.get();
+  const hasDepts = data.departments.some(d => d.divisionId === divId);
+  if (hasDepts) { H.notify('Remove all departments from this division first', 'error'); return; }
+  if (!confirm('Delete this division?')) return;
+  Store.set(data => { data.divisions = data.divisions.filter(d => d.id !== divId); return data; });
+  H.notify('Division deleted', 'success');
+  renderOrganization();
+}
+
+// ─── Department Modal ─────────────────────────
+function openDepartmentModal(editId = null, presetDivId = null) {
+  const data = Store.get();
+  const dept = editId ? data.departments.find(d => d.id === editId) : null;
+  document.getElementById('modal-title').textContent = editId ? 'Edit Department' : 'Add Department';
+  document.getElementById('modal-confirm').textContent = editId ? '✓ Save' : '✓ Create';
+  document.getElementById('modal-body').innerHTML = `
+    <div class="form-row">
+      <div class="form-field"><label>Department Name *</label><input id="dp-name" value="${dept?.name||''}" placeholder="e.g. Engineering"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-field"><label>Division *</label>
+        <select id="dp-div">
+          <option value="">Select division...</option>
+          ${data.divisions.map(d => `<option value="${d.id}" ${(dept?.divisionId===d.id || presetDivId===d.id) ? 'selected' : ''}>${d.name}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+  `;
+  document.getElementById('modal-confirm').onclick = () => {
+    const name = document.getElementById('dp-name').value.trim();
+    const divisionId = document.getElementById('dp-div').value;
+    if (!name || !divisionId) { H.notify('Fill all fields', 'error'); return; }
+    Store.set(data => {
+      if (editId) {
+        const d = data.departments.find(x => x.id === editId);
+        if (d) { d.name = name; d.divisionId = divisionId; }
+      } else {
+        data.departments.push({ id: H.uid(), name, divisionId });
+      }
+      return data;
+    });
+    closeModal();
+    H.notify(editId ? 'Department updated!' : 'Department created!', 'success');
+    renderOrganization();
+  };
+  openModal();
+}
+
+function deleteDepartment(deptId) {
+  const data = Store.get();
+  const dept = data.departments.find(d => d.id === deptId);
+  const hasMembers = data.users.some(u => u.department === dept?.name);
+  if (hasMembers) { H.notify('Reassign all members from this department first', 'error'); return; }
+  if (!confirm('Delete this department?')) return;
+  Store.set(data => { data.departments = data.departments.filter(d => d.id !== deptId); return data; });
+  H.notify('Department deleted', 'success');
+  renderOrganization();
+}
+
+// ─── Assign Member to Department ─────────────
+function openAssignMemberModal(deptId) {
+  const data = Store.get();
+  const dept = data.departments.find(d => d.id === deptId);
+  const div = data.divisions.find(d => d.id === dept?.divisionId);
+  const currentMembers = data.users.filter(u => u.department === dept?.name);
+  document.getElementById('modal-title').textContent = `Manage Members — ${dept?.name}`;
+  document.getElementById('modal-confirm').textContent = '✓ Save';
+  document.getElementById('modal-body').innerHTML = `
+    <div style="margin-bottom:16px;padding:12px;background:var(--bg-base);border-radius:var(--radius);border:1px solid var(--border)">
+      <div style="font-size:12px;color:var(--text-3)">Division</div>
+      <div style="font-size:13px;font-weight:600;margin-top:2px">${div?.name || '—'}</div>
+    </div>
+    <div class="form-row">
+      <div class="form-field">
+        <label>Assign User to this Department</label>
+        <select id="assign-user">
+          <option value="">Select user...</option>
+          ${data.users.map(u => `<option value="${u.id}" ${u.department===dept?.name?'selected':''}>${u.name} (currently: ${u.department||'Unassigned'})</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div style="margin-top:8px;">
+      <div style="font-size:12px;color:var(--text-2);margin-bottom:10px;font-weight:500">Current Members (${currentMembers.length})</div>
+      ${currentMembers.length === 0 ? '<div style="color:var(--text-3);font-size:12px">No members yet</div>' :
+        currentMembers.map(m => `
+          <div style="display:flex;align-items:center;gap:10px;padding:8px;background:var(--bg-base);border-radius:var(--radius-sm);margin-bottom:6px;border:1px solid var(--border);">
+            <div class="avatar" style="width:28px;height:28px;font-size:10px">${m.avatar}</div>
+            <div style="flex:1">
+              <div style="font-size:13px;font-weight:500">${m.name}</div>
+              <div style="font-size:11px;color:var(--text-3)">${m.position}</div>
+            </div>
+            <button class="btn btn-danger btn-sm" onclick="removeMemberFromDept('${m.id}','${deptId}')">Remove</button>
+          </div>
+        `).join('')}
+    </div>
+  `;
+  document.getElementById('modal-confirm').onclick = () => {
+    const userId = document.getElementById('assign-user').value;
+    if (!userId) { H.notify('Select a user to assign', 'error'); return; }
+    Store.set(data => {
+      const u = data.users.find(x => x.id === userId);
+      if (u) { u.department = dept.name; u.division = div?.name || u.division; }
+      return data;
+    });
+    closeModal();
+    H.notify('Member assigned!', 'success');
+    renderOrganization();
+  };
+  openModal();
+}
+
+function removeMemberFromDept(userId, deptId) {
+  Store.set(data => {
+    const u = data.users.find(x => x.id === userId);
+    if (u) u.department = '';
+    return data;
+  });
+  H.notify('Member removed from department', 'success');
+  const dept = Store.get().departments.find(d => d.id === deptId);
+  openAssignMemberModal(deptId);
 }
 
 // ═══════════════════════════════════════════════
@@ -1115,6 +1301,7 @@ function renderUsers() {
                     <div style="display:flex;gap:6px">
                       <button class="btn btn-ghost btn-sm" onclick="openEditUserModal('${u.id}')">✏️ Edit</button>
                       <button class="btn btn-danger btn-sm" onclick="toggleUserStatus('${u.id}')">${u.active?'🔒 Deactivate':'🔓 Activate'}</button>
+                      ${u.id !== currentUser.id ? `<button class="btn btn-danger btn-sm" onclick="deleteUser('${u.id}')" title="Delete user">🗑️</button>` : ''}
                     </div>
                   </td>
                 </tr>
@@ -1223,6 +1410,26 @@ function toggleUserStatus(userId) {
     return data;
   });
   H.notify('User status updated', 'success');
+  const currentPage = document.querySelector('.page.active')?.id;
+  if (currentPage === 'page-users') renderUsers();
+  else renderOrganization();
+}
+
+function deleteUser(userId) {
+  if (userId === currentUser.id) { H.notify("You can't delete yourself", 'error'); return; }
+  const u = H.getUserById(userId);
+  if (!confirm(`Delete ${u?.name}? This action cannot be undone.`)) return;
+  Store.set(data => {
+    data.users = data.users.filter(u => u.id !== userId);
+    // Remove from project teams
+    data.projects.forEach(p => { p.teamIds = p.teamIds.filter(id => id !== userId); });
+    // Unassign tasks
+    data.tasks.forEach(t => { if (t.assignedTo === userId) t.assignedTo = null; });
+    // Update manager references
+    data.users.forEach(u => { if (u.managerId === userId) u.managerId = null; });
+    return data;
+  });
+  H.notify('User deleted', 'success');
   const currentPage = document.querySelector('.page.active')?.id;
   if (currentPage === 'page-users') renderUsers();
   else renderOrganization();
