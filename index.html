@@ -62,12 +62,17 @@
         <button class="login-btn" onclick="doLogin()">Sign In →</button>
 
         <div class="login-hint">
-          <h5>Demo Accounts</h5>
-          <p>
-            <strong>admin.root</strong> / Admin@123 (Super Admin)<br>
-            <strong>james.wilson</strong> / Pass@123 (Manager)<br>
-            <strong>kai.johnson</strong> / Pass@111 (Employee)
-          </p>
+          <div class="login-hint-header">
+            <h5>Demo Accounts</h5>
+            <button class="login-hint-toggle" onclick="toggleHint(this)">Show</button>
+          </div>
+          <div class="login-hint-body" id="demo-hint-body">
+            <p>
+              <strong>admin.root</strong> / Admin@123 (Super Admin)<br>
+              <strong>james.wilson</strong> / Pass@123 (Manager)<br>
+              <strong>kai.johnson</strong> / Pass@111 (Employee)
+            </p>
+          </div>
         </div>
       </div>
     </div>
@@ -77,8 +82,13 @@
 
   <script src="js/store.js"></script>
   <script>
-    // Pre-init store
     Store.get();
+
+    function toggleHint(btn) {
+      const body = document.getElementById('demo-hint-body');
+      const isOpen = body.classList.toggle('open');
+      btn.textContent = isOpen ? 'Hide' : 'Show';
+    }
 
     function doLogin() {
       const username = document.getElementById('username').value.trim();
