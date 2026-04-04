@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nexus — Dashboard</title>
+  <link rel="stylesheet" href="css/main.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⬡</text></svg>">
+</head>
+<body>
+<div class="app-shell">
+
+  <!-- ═══ HEADER ═══ -->
+  <header class="app-header">
+    <div class="header-brand">
+      <span class="brand-icon">⬡</span>
+      <span class="brand-name">Nexus</span>
+    </div>
+
+    <div class="header-search">
+      <span class="search-icon">⌕</span>
+      <input type="text" placeholder="Search people, projects, tasks...">
+    </div>
+
+    <div class="header-actions">
+      <button class="icon-btn" onclick="navigate('calendar')" title="Calendar">◷</button>
+      <button class="icon-btn" onclick="navigate('chat')" title="Messages">
+        ◉
+        <span class="notif-badge" id="notif-count" style="display:none"></span>
+      </button>
+
+      <div class="dropdown">
+        <div class="header-user" onclick="toggleUserMenu()">
+          <div class="avatar" id="header-avatar">?</div>
+          <div class="header-user-info">
+            <div class="name" id="header-user-name">Loading...</div>
+            <div class="role" id="header-user-role">—</div>
+          </div>
+          <span style="color:var(--text-3);font-size:12px;margin-left:4px">▾</span>
+        </div>
+        <div class="dropdown-menu" id="user-menu">
+          <div class="dropdown-item" onclick="showMyProfile()">👤 My Profile</div>
+          <div class="dropdown-item" onclick="navigate('my-tasks')">◻ My Tasks</div>
+          <div class="dropdown-item" onclick="navigate('calendar')">◷ Calendar</div>
+          <div class="dropdown-sep"></div>
+          <div class="dropdown-item danger" onclick="Auth.logout()">⬡ Sign Out</div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ═══ SIDEBAR ═══ -->
+  <aside class="app-sidebar">
+    <nav id="main-nav"></nav>
+    <div class="sidebar-footer">
+      <button class="logout-btn" onclick="Auth.logout()">
+        <span>⬡</span> Sign Out
+      </button>
+    </div>
+  </aside>
+
+  <!-- ═══ MAIN CONTENT ═══ -->
+  <main class="app-main">
+
+    <!-- Dashboard -->
+    <div id="page-dashboard" class="page">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">Dashboard</h1>
+          <p class="page-sub">Your workspace overview</p>
+        </div>
+        <span id="dash-greeting" class="badge badge-muted"></span>
+      </div>
+      <div class="page-body" id="dashboard-content"></div>
+    </div>
+
+    <!-- Organization -->
+    <div id="page-organization" class="page">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">Organization</h1>
+          <p class="page-sub">Company structure, hierarchy & directory</p>
+        </div>
+      </div>
+      <div class="page-body" id="org-content"></div>
+    </div>
+
+    <!-- Projects -->
+    <div id="page-projects" class="page">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">Projects</h1>
+          <p class="page-sub">All projects and their progress</p>
+        </div>
+        <div id="project-header-actions"></div>
+      </div>
+      <div class="page-body" id="projects-content"></div>
+    </div>
+
+    <!-- My Tasks -->
+    <div id="page-my-tasks" class="page">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">My Tasks</h1>
+          <p class="page-sub">Your assigned tasks and workflow</p>
+        </div>
+      </div>
+      <div class="page-body" id="mytasks-content"></div>
+    </div>
+
+    <!-- Calendar -->
+    <div id="page-calendar" class="page">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">Calendar</h1>
+          <p class="page-sub">Task deadlines and scheduled meetings</p>
+        </div>
+        <button class="btn btn-primary" onclick="openMeetingModal()">+ Schedule Meeting</button>
+      </div>
+      <div class="page-body" id="calendar-content"></div>
+    </div>
+
+    <!-- Files -->
+    <div id="page-files" class="page">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">File Storage</h1>
+          <p class="page-sub">Shared documents and cloud storage</p>
+        </div>
+      </div>
+      <div class="page-body" id="files-content"></div>
+    </div>
+
+    <!-- Chat -->
+    <div id="page-chat" class="page">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">Chat</h1>
+          <p class="page-sub">Private messages and public announcements</p>
+        </div>
+      </div>
+      <div class="page-body" id="chat-content"></div>
+    </div>
+
+    <!-- Task Create -->
+    <div id="page-task-create" class="page">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">Create Task</h1>
+          <p class="page-sub">Assign and configure a new task</p>
+        </div>
+      </div>
+      <div class="page-body" id="taskcreate-content"></div>
+    </div>
+
+    <!-- Project Create -->
+    <div id="page-project-create" class="page">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">Create Project</h1>
+          <p class="page-sub">Define scope, team, and timeline</p>
+        </div>
+      </div>
+      <div class="page-body" id="projectcreate-content"></div>
+    </div>
+
+    <!-- User Management -->
+    <div id="page-users" class="page">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">User Management</h1>
+          <p class="page-sub">Create, onboard, and manage accounts</p>
+        </div>
+        <button class="btn btn-primary" onclick="openAddUserModal()">+ Create User</button>
+      </div>
+      <div class="page-body" id="users-content"></div>
+    </div>
+
+  </main>
+</div>
+
+<!-- ═══ UNIVERSAL MODAL ═══ -->
+<div class="modal-overlay" id="main-modal" onclick="if(event.target===this)closeModal()">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <h3 id="modal-title">Modal</h3>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" id="modal-confirm">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast Container -->
+<div id="toast-container"></div>
+
+<script src="js/store.js"></script>
+<script src="js/app.js"></script>
+<script>
+  // Greeting
+  const hour = new Date().getHours();
+  const greet = hour < 12 ? 'Good Morning' : hour < 18 ? 'Good Afternoon' : 'Good Evening';
+  document.addEventListener('DOMContentLoaded', () => {
+    const el = document.getElementById('dash-greeting');
+    if (el && currentUser) el.textContent = `${greet}, ${currentUser.name.split(' ')[0]} 👋`;
+  });
+
+  function showMyProfile() {
+    if (currentUser) showUserProfile(currentUser.id);
+    document.getElementById('user-menu').classList.remove('open');
+  }
+</script>
+</body>
+</html>

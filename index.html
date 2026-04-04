@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nexus — Sign In</title>
+  <link rel="stylesheet" href="css/main.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⬡</text></svg>">
+</head>
+<body>
+  <div class="login-page">
+    <!-- Left Art Panel -->
+    <div class="login-art">
+      <div class="grid-lines"></div>
+      <div class="login-art-content">
+        <div class="login-brand-logo">⬡</div>
+        <div class="login-brand-name">Nexus</div>
+        <div class="login-brand-tag">Enterprise Management Platform</div>
+
+        <div class="login-features">
+          <div class="login-feature">
+            <div class="lf-icon">◫</div>
+            <div class="lf-text">
+              <h4>Org Structure & People</h4>
+              <p>Hierarchical org charts, role management, and team directories.</p>
+            </div>
+          </div>
+          <div class="login-feature">
+            <div class="lf-icon">◈</div>
+            <div class="lf-text">
+              <h4>Project & Task Management</h4>
+              <p>Track projects end-to-end with real-time task workflows.</p>
+            </div>
+          </div>
+          <div class="login-feature">
+            <div class="lf-icon">◉</div>
+            <div class="lf-text">
+              <h4>Unified Collaboration</h4>
+              <p>Chat, meetings, file storage — everything in one place.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right Form Panel -->
+    <div class="login-form-side">
+      <div class="login-form-box">
+        <h2>Welcome back</h2>
+        <p>Sign in to your Nexus workspace</p>
+
+        <div class="form-group">
+          <label>Username</label>
+          <input type="text" id="username" placeholder="username" autocomplete="username"
+            onkeydown="if(event.key==='Enter')document.getElementById('password').focus()">
+        </div>
+        <div class="form-group">
+          <label>Password</label>
+          <input type="password" id="password" placeholder="••••••••" autocomplete="current-password"
+            onkeydown="if(event.key==='Enter')doLogin()">
+        </div>
+        <button class="login-btn" onclick="doLogin()">Sign In →</button>
+
+        <div class="login-hint">
+          <h5>Demo Accounts</h5>
+          <p>
+            <strong>admin.root</strong> / Admin@123 (Super Admin)<br>
+            <strong>james.wilson</strong> / Pass@123 (Manager)<br>
+            <strong>kai.johnson</strong> / Pass@111 (Employee)
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast-container"></div>
+
+  <script src="js/store.js"></script>
+  <script>
+    // Pre-init store
+    Store.get();
+
+    function doLogin() {
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+      if (!username || !password) { H.notify('Enter credentials', 'error'); return; }
+      const user = Auth.login(username, password);
+      if (user) {
+        H.notify(`Welcome, ${user.name.split(' ')[0]}!`, 'success');
+        setTimeout(() => window.location.href = 'app.html', 700);
+      } else {
+        H.notify('Invalid username or password', 'error');
+        document.getElementById('password').value = '';
+        document.getElementById('password').focus();
+      }
+    }
+  </script>
+</body>
+</html>
