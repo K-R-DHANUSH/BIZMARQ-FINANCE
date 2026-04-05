@@ -1597,32 +1597,30 @@ function renderTaskCreate() {
   if (!Auth.can(currentUser, 'create_task')) { H.notify('Access denied','error'); navigate('my-tasks'); return; }
   const data = Store.get();
   const container = document.getElementById('taskcreate-content');
-  // All active non-admin users available as assignees
-  const allAssignees = data.users.filter(u => (u.role === 'employee' || u.role === 'manager') && u.active);
+  // All active users can be assigned tasks (including super_admins)
+  const allAssignees = data.users.filter(u => u.active);
 
   function buildAssigneeOptions(projectId) {
     if (!projectId) {
-      // No project selected → show everyone
       return allAssignees.map(u =>
         `<option value="${u.id}">${u.name} — ${u.position} (${u.department})</option>`
       ).join('');
     }
     const proj = data.projects.find(p => p.id === projectId);
-    if (!proj || !proj.teamIds || proj.teamIds.length === 0) {
-      // Project has no team assigned → fall back to all
-      return allAssignees.map(u =>
-        `<option value="${u.id}">${u.name} — ${u.position} (${u.department})</option>`
-      ).join('');
-    }
-    // Filter to project team members only
-    const teamMembers = allAssignees.filter(u => proj.teamIds.includes(u.id));
-    if (teamMembers.length === 0) {
-      // Team IDs set but none match active employees (edge case) → show all
-      return allAssignees.map(u =>
-        `<option value="${u.id}">${u.name} — ${u.position} (${u.department})</option>`
-      ).join('');
-    }
-    return teamMembers.map(u =>
+    if (!proj) return allAssignees.map(u =>
+      `<option value="${u.id}">${u.name} — ${u.position} (${u.department})</option>`
+    ).join('');
+
+    // Include both teamIds and the project manager
+    const relevantIds = new Set([
+      ...(proj.teamIds || []),
+      ...(proj.managerId ? [proj.managerId] : [])
+    ]);
+    const teamMembers = allAssignees.filter(u => relevantIds.has(u.id));
+
+    // Fall back to all if no matches
+    const pool = teamMembers.length > 0 ? teamMembers : allAssignees;
+    return pool.map(u =>
       `<option value="${u.id}">${u.name} — ${u.position} (${u.department})</option>`
     ).join('');
   }
@@ -1722,7 +1720,8 @@ function updateTaskAssignees() {
   const hint = document.getElementById('tc-assignee-hint');
   if (!assigneeSelect) return;
 
-  const allAssignees = data.users.filter(u => (u.role === 'employee' || u.role === 'manager') && u.active);
+  // Include ALL active users (employees, managers, super_admins) as potential assignees
+  const allAssignees = data.users.filter(u => u.active);
   const previousValue = assigneeSelect.value;
 
   let members = allAssignees;
@@ -1730,15 +1729,20 @@ function updateTaskAssignees() {
 
   if (projectId) {
     const proj = data.projects.find(p => p.id === projectId);
-    const teamMembers = proj?.teamIds?.length
-      ? allAssignees.filter(u => proj.teamIds.includes(u.id))
-      : [];
+    if (proj) {
+      // Include both teamIds AND the project manager in the pool
+      const relevantIds = new Set([
+        ...(proj.teamIds || []),
+        ...(proj.managerId ? [proj.managerId] : [])
+      ]);
+      const teamMembers = allAssignees.filter(u => relevantIds.has(u.id));
 
-    if (teamMembers.length > 0) {
-      members = teamMembers;
-      hintText = `Showing ${teamMembers.length} team member${teamMembers.length !== 1 ? 's' : ''} assigned to this project`;
-    } else {
-      hintText = 'No team members on this project — showing all employees';
+      if (teamMembers.length > 0) {
+        members = teamMembers;
+        hintText = `Showing ${teamMembers.length} member${teamMembers.length !== 1 ? 's' : ''} assigned to this project`;
+      } else {
+        hintText = 'No team members found for this project — showing all users';
+      }
     }
   }
 
@@ -1747,7 +1751,7 @@ function updateTaskAssignees() {
     ${members.map(u => `<option value="${u.id}">${u.name} — ${u.position} (${u.department})</option>`).join('')}
   `;
 
-  // Restore previous selection if the user is still in the filtered list
+  // Restore previous selection if still in filtered list
   if (previousValue && members.find(u => u.id === previousValue)) {
     assigneeSelect.value = previousValue;
   }
