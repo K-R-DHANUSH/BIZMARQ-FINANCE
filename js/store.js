@@ -24,7 +24,7 @@
 //  └────────────────────────────────────────────────────────────┘
 
 const GIST_ID    = '915bc7aef3d7130aa2044ba311089dc3';   // e.g. 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4'
-const GIST_TOKEN = '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';   // e.g. 'ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+const GIST_TOKEN = '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';   // e.g. 'ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxx'
 const GIST_FILE  = 'nexus.json';
 
 // Read from localStorage if not hardcoded above — lets users connect via the UI
