@@ -23,6 +23,7 @@
     </div>
 
     <div class="header-actions">
+      <button class="theme-toggle-btn" onclick="toggleTheme()" id="theme-btn" title="Toggle Theme">🌙</button>
       <button class="icon-btn" onclick="navigate('calendar')" title="Calendar">◷</button>
       <button class="icon-btn" onclick="navigate('chat')" title="Messages">
         ◉
@@ -42,6 +43,7 @@
           <div class="dropdown-item" onclick="showMyProfile()">👤 My Profile</div>
           <div class="dropdown-item" onclick="navigate('my-tasks')">◻ My Tasks</div>
           <div class="dropdown-item" onclick="navigate('calendar')">◷ Calendar</div>
+          <div class="dropdown-item" onclick="navigate('settings')">⚙ Settings</div>
           <div class="dropdown-sep"></div>
           <div class="dropdown-item danger" onclick="Auth.logout()">⬡ Sign Out</div>
         </div>
@@ -164,6 +166,17 @@
       <div class="page-body" id="projectcreate-content"></div>
     </div>
 
+    <!-- Settings -->
+    <div id="page-settings" class="page">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">Settings</h1>
+          <p class="page-sub">Personal preferences, skills, and profile customization</p>
+        </div>
+      </div>
+      <div class="page-body" id="settings-content"></div>
+    </div>
+
     <!-- User Management -->
     <div id="page-users" class="page">
       <div class="page-header">
@@ -200,12 +213,38 @@
 <script src="js/store.js"></script>
 <script src="js/app.js"></script>
 <script>
+  // Theme management
+  function applyTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    const btn = document.getElementById('theme-btn');
+    if (btn) btn.textContent = theme === 'dark' ? '☀️' : '🌙';
+  }
+  function toggleTheme() {
+    const current = document.documentElement.getAttribute('data-theme') || 'light';
+    const next = current === 'dark' ? 'light' : 'dark';
+    applyTheme(next);
+    // Save to user prefs in store
+    Store.set(data => {
+      const u = data.users.find(x => x.id === currentUser?.id);
+      if (u) u.theme = next;
+      return data;
+    });
+    // Also save to localStorage for persistence before auth
+    localStorage.setItem('nexus_theme', next);
+  }
+  // Apply saved theme immediately
+  const savedTheme = localStorage.getItem('nexus_theme') || 'light';
+  applyTheme(savedTheme);
+
   // Greeting
   const hour = new Date().getHours();
   const greet = hour < 12 ? 'Good Morning' : hour < 18 ? 'Good Afternoon' : 'Good Evening';
   document.addEventListener('DOMContentLoaded', () => {
     const el = document.getElementById('dash-greeting');
     if (el && currentUser) el.textContent = `${greet}, ${currentUser.name.split(' ')[0]} 👋`;
+    // Apply user's saved theme
+    const userTheme = currentUser?.theme || savedTheme;
+    applyTheme(userTheme);
   });
 
   function showMyProfile() {
