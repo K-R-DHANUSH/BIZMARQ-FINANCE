@@ -105,6 +105,7 @@ function buildNavItems() {
   }
   if (currentUser.role === 'super_admin') {
     groups.push({ label: 'Admin', items: [
+      { page: 'all-tasks', icon: '◈', name: 'All Tasks' },
       { page: 'users', icon: '◎', name: 'User Management' }
     ]});
   }
@@ -128,6 +129,7 @@ function navigate(page) {
     'organization': renderOrganization,
     'projects': renderProjects,
     'my-tasks': renderMyTasks,
+    'all-tasks': renderAllTasks,
     'calendar': renderCalendar,
     'files': renderFiles,
     'chat': renderChat,
@@ -1952,7 +1954,359 @@ function submitProjectCreate() {
 // ═══════════════════════════════════════════════
 //  PAGE: USER MANAGEMENT
 // ═══════════════════════════════════════════════
-function renderUsers() {
+// ═══════════════════════════════════════════════
+//  PAGE: ALL TASKS  (Super Admin only)
+// ═══════════════════════════════════════════════
+function renderAllTasks() {
+  if (currentUser.role !== 'super_admin') { navigate('dashboard'); return; }
+  const data = Store.get();
+  const container = document.getElementById('alltasks-content');
+
+  // Filters state stored on the element to persist during re-renders
+  const filterStatus   = window._atFilterStatus   || 'all';
+  const filterPriority = window._atFilterPriority || 'all';
+  const filterProject  = window._atFilterProject  || 'all';
+  const filterAssignee = window._atFilterAssignee || 'all';
+  const searchQ        = window._atSearch         || '';
+
+  // Apply filters
+  let tasks = [...data.tasks];
+  if (filterStatus   !== 'all') tasks = tasks.filter(t => t.status   === filterStatus);
+  if (filterPriority !== 'all') tasks = tasks.filter(t => t.priority === filterPriority);
+  if (filterProject  !== 'all') tasks = tasks.filter(t => t.projectId === filterProject);
+  if (filterAssignee !== 'all') tasks = tasks.filter(t => t.assignedTo === filterAssignee);
+  if (searchQ) {
+    const q = searchQ.toLowerCase();
+    tasks = tasks.filter(t =>
+      t.title.toLowerCase().includes(q) ||
+      (t.description||'').toLowerCase().includes(q) ||
+      (t.tags||[]).some(tag => tag.toLowerCase().includes(q))
+    );
+  }
+
+  // Stats (from full unfiltered set)
+  const all = data.tasks;
+  const statTodo     = all.filter(t=>t.status==='todo').length;
+  const statInProg   = all.filter(t=>t.status==='in_progress').length;
+  const statReview   = all.filter(t=>t.status==='review').length;
+  const statDone     = all.filter(t=>t.status==='completed').length;
+
+  const statusOptions   = ['all','todo','in_progress','review','completed'];
+  const priorityOptions = ['all','critical','high','medium','low'];
+
+  container.innerHTML = `
+    <div class="fade-up">
+
+      <!-- Stats row -->
+      <div class="grid-4" style="margin-bottom:24px;">
+        <div class="stat-card" style="--accent-clr:var(--text-3)">
+          <div class="stat-val">${statTodo}</div><div class="stat-label">To Do</div>
+        </div>
+        <div class="stat-card" style="--accent-clr:var(--warn)">
+          <div class="stat-val">${statInProg}</div><div class="stat-label">In Progress</div>
+        </div>
+        <div class="stat-card" style="--accent-clr:var(--purple,#8b5cf6)">
+          <div class="stat-val">${statReview}</div><div class="stat-label">In Review</div>
+        </div>
+        <div class="stat-card" style="--accent-clr:var(--success)">
+          <div class="stat-val">${statDone}</div><div class="stat-label">Completed</div>
+        </div>
+      </div>
+
+      <!-- Filter bar -->
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:20px;padding:14px 16px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg);">
+        <input type="text" placeholder="🔍 Search tasks…" value="${searchQ}"
+          oninput="window._atSearch=this.value;renderAllTasks()"
+          style="flex:1;min-width:160px;padding:7px 12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-base);color:var(--text-1);font-size:13px;">
+
+        <select onchange="window._atFilterStatus=this.value;renderAllTasks()"
+          style="padding:7px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-base);color:var(--text-1);font-size:12px;">
+          <option value="all" ${filterStatus==='all'?'selected':''}>All Statuses</option>
+          <option value="todo"        ${filterStatus==='todo'?'selected':''}>To Do</option>
+          <option value="in_progress" ${filterStatus==='in_progress'?'selected':''}>In Progress</option>
+          <option value="review"      ${filterStatus==='review'?'selected':''}>In Review</option>
+          <option value="completed"   ${filterStatus==='completed'?'selected':''}>Completed</option>
+        </select>
+
+        <select onchange="window._atFilterPriority=this.value;renderAllTasks()"
+          style="padding:7px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-base);color:var(--text-1);font-size:12px;">
+          <option value="all"      ${filterPriority==='all'?'selected':''}>All Priorities</option>
+          <option value="critical" ${filterPriority==='critical'?'selected':''}>🔴 Critical</option>
+          <option value="high"     ${filterPriority==='high'?'selected':''}>🟠 High</option>
+          <option value="medium"   ${filterPriority==='medium'?'selected':''}>🟡 Medium</option>
+          <option value="low"      ${filterPriority==='low'?'selected':''}>🟢 Low</option>
+        </select>
+
+        <select onchange="window._atFilterProject=this.value;renderAllTasks()"
+          style="padding:7px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-base);color:var(--text-1);font-size:12px;max-width:200px;">
+          <option value="all" ${filterProject==='all'?'selected':''}>All Projects</option>
+          ${data.projects.map(p=>`<option value="${p.id}" ${filterProject===p.id?'selected':''}>${p.name}</option>`).join('')}
+        </select>
+
+        <select onchange="window._atFilterAssignee=this.value;renderAllTasks()"
+          style="padding:7px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-base);color:var(--text-1);font-size:12px;max-width:180px;">
+          <option value="all" ${filterAssignee==='all'?'selected':''}>All Employees</option>
+          ${data.users.filter(u=>u.active).map(u=>`<option value="${u.id}" ${filterAssignee===u.id?'selected':''}>${u.name}</option>`).join('')}
+        </select>
+
+        <button class="btn btn-ghost btn-sm" onclick="window._atFilterStatus='all';window._atFilterPriority='all';window._atFilterProject='all';window._atFilterAssignee='all';window._atSearch='';renderAllTasks()"
+          style="white-space:nowrap">✕ Clear</button>
+
+        <span style="margin-left:auto;font-size:12px;color:var(--text-3);white-space:nowrap">${tasks.length} of ${all.length} tasks</span>
+      </div>
+
+      <!-- Task table -->
+      ${tasks.length === 0
+        ? `<div style="text-align:center;padding:60px 20px;color:var(--text-3);font-size:14px;">No tasks match your filters.</div>`
+        : `<div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th style="width:28px"></th>
+              <th>Task</th>
+              <th>Assigned To</th>
+              <th>Project</th>
+              <th>Priority</th>
+              <th>Status</th>
+              <th>Due Date</th>
+              <th>Subtasks</th>
+              <th>Actions</th>
+            </tr></thead>
+            <tbody>
+              ${tasks.map(t => {
+                const assignee = H.getUserById(t.assignedTo);
+                const creator  = H.getUserById(t.createdBy);
+                const project  = data.projects.find(p=>p.id===t.projectId);
+                const subtasks = t.subtasks || [];
+                const doneSubs = subtasks.filter(s=>s.done).length;
+                const isOverdue = t.dueDate && t.status !== 'completed' && new Date(t.dueDate) < new Date();
+                return `
+                  <tr style="${isOverdue?'background:rgba(239,68,68,.04)':''}">
+                    <td style="text-align:center">${H.priorityIcon(t.priority)}</td>
+                    <td>
+                      <div style="font-weight:600;font-size:13px;cursor:pointer;color:var(--text-1)" onclick="showTaskDetail('${t.id}')">${t.title}</div>
+                      ${t.description ? `<div style="font-size:11px;color:var(--text-3);margin-top:2px;max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${t.description}</div>` : ''}
+                      ${(t.tags||[]).length ? `<div style="margin-top:4px">${t.tags.map(tag=>`<span class="tag">${tag}</span>`).join('')}</div>` : ''}
+                    </td>
+                    <td>
+                      ${assignee ? `
+                        <div style="display:flex;align-items:center;gap:8px">
+                          <div class="avatar" style="width:26px;height:26px;font-size:10px;flex-shrink:0">${assignee.avatar}</div>
+                          <div>
+                            <div style="font-size:12px;font-weight:600">${assignee.name}</div>
+                            <div style="font-size:10px;color:var(--text-3)">${assignee.position}</div>
+                          </div>
+                        </div>` : '<span style="color:var(--text-3);font-size:12px">Unassigned</span>'}
+                    </td>
+                    <td>
+                      ${project
+                        ? `<div style="font-size:12px;font-weight:500">${project.name}</div><div style="font-size:10px;color:var(--text-3);font-family:var(--font-mono)">${project.code}</div>`
+                        : '<span style="color:var(--text-3);font-size:12px">—</span>'}
+                    </td>
+                    <td><span class="badge ${H.statusBadge(t.priority)}">${H.priorityIcon(t.priority)} ${t.priority}</span></td>
+                    <td>
+                      <select onchange="adminUpdateTaskStatus('${t.id}',this.value)"
+                        style="padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-base);color:var(--text-1);font-size:11px;cursor:pointer">
+                        <option value="todo"        ${t.status==='todo'       ?'selected':''}>To Do</option>
+                        <option value="in_progress" ${t.status==='in_progress'?'selected':''}>In Progress</option>
+                        <option value="review"      ${t.status==='review'     ?'selected':''}>In Review</option>
+                        <option value="completed"   ${t.status==='completed'  ?'selected':''}>Completed</option>
+                      </select>
+                    </td>
+                    <td style="font-size:12px;white-space:nowrap;${isOverdue?'color:var(--danger);font-weight:600':'color:var(--text-2)'}">
+                      ${isOverdue ? '⚠ ' : ''}${H.fmt(t.dueDate)}
+                    </td>
+                    <td>
+                      ${subtasks.length === 0
+                        ? `<span style="font-size:11px;color:var(--text-3)">—</span>`
+                        : `<div style="display:flex;align-items:center;gap:6px;">
+                            <div style="flex:1;height:5px;background:var(--bg-hover);border-radius:4px;overflow:hidden;min-width:50px">
+                              <div style="height:100%;background:var(--success);width:${Math.round(doneSubs/subtasks.length*100)}%;border-radius:4px"></div>
+                            </div>
+                            <span style="font-size:11px;color:var(--text-3);white-space:nowrap">${doneSubs}/${subtasks.length}</span>
+                            <button class="btn btn-ghost btn-sm" onclick="showSubtaskDetail('${t.id}')" title="View subtasks" style="padding:2px 6px;font-size:11px">▾</button>
+                          </div>`
+                      }
+                    </td>
+                    <td>
+                      <div style="display:flex;gap:4px;">
+                        <button class="btn btn-ghost btn-sm" onclick="showTaskDetail('${t.id}')" title="View detail">👁</button>
+                        <button class="btn btn-ghost btn-sm" onclick="openEditTaskModal('${t.id}')" title="Edit task">✏️</button>
+                        <button class="btn btn-danger btn-sm" onclick="deleteTask('${t.id}')" title="Delete task">🗑</button>
+                      </div>
+                    </td>
+                  </tr>
+                  ${subtasks.length > 0 ? `
+                    <tr id="subtask-row-${t.id}" style="display:none">
+                      <td colspan="9" style="padding:0 0 12px 52px;">
+                        <div style="background:var(--bg-surface);border-radius:var(--radius);padding:12px 16px;border-left:3px solid var(--border-2);">
+                          <div style="font-size:11px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;">Subtasks</div>
+                          ${subtasks.map(s=>`
+                            <div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);">
+                              <span style="font-size:15px">${s.done ? '✅' : '⬜'}</span>
+                              <span style="font-size:13px;${s.done?'text-decoration:line-through;color:var(--text-3)':'color:var(--text-1)'}">${s.title}</span>
+                              ${s.done ? `<span class="badge badge-muted" style="margin-left:auto;font-size:10px">Done</span>` : `<span class="badge badge-info" style="margin-left:auto;font-size:10px">Pending</span>`}
+                            </div>
+                          `).join('')}
+                        </div>
+                      </td>
+                    </tr>
+                  ` : ''}
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>`
+      }
+    </div>
+  `;
+}
+
+function showSubtaskDetail(taskId) {
+  const row = document.getElementById(`subtask-row-${taskId}`);
+  if (!row) return;
+  const isHidden = row.style.display === 'none';
+  row.style.display = isHidden ? '' : 'none';
+}
+
+function adminUpdateTaskStatus(taskId, newStatus) {
+  Store.set(data => {
+    const task = data.tasks.find(t => t.id === taskId);
+    if (task) {
+      task.status = newStatus;
+      if (newStatus === 'completed') task.completedAt = new Date().toISOString();
+      else task.completedAt = null;
+    }
+    return data;
+  });
+  H.notify(`Task status updated to ${newStatus.replace('_',' ')}`, 'success');
+}
+
+function deleteTask(taskId) {
+  const data = Store.get();
+  const t = data.tasks.find(x => x.id === taskId);
+  if (!confirm(`Delete task "${t?.title}"? This cannot be undone.`)) return;
+  Store.set(data => { data.tasks = data.tasks.filter(x => x.id !== taskId); return data; });
+  H.notify('Task deleted', 'success');
+  renderAllTasks();
+}
+
+function openEditTaskModal(taskId) {
+  const data = Store.get();
+  const t = data.tasks.find(x => x.id === taskId);
+  if (!t) return;
+  const allUsers = data.users.filter(u => u.active);
+
+  document.getElementById('modal-title').textContent = '✏️ Edit Task';
+  document.getElementById('modal-confirm').style.display = 'none';
+  document.getElementById('modal-body').innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <div class="form-row cols-2">
+        <div class="form-field">
+          <label>Task Title *</label>
+          <input type="text" id="et-title" value="${t.title}">
+        </div>
+        <div class="form-field">
+          <label>Project</label>
+          <select id="et-project">
+            <option value="">— No Project —</option>
+            ${data.projects.map(p=>`<option value="${p.id}" ${t.projectId===p.id?'selected':''}>${p.name}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div class="form-field">
+        <label>Description</label>
+        <textarea id="et-desc" rows="3">${t.description||''}</textarea>
+      </div>
+      <div class="form-row cols-2">
+        <div class="form-field">
+          <label>Assigned To *</label>
+          <select id="et-assignee">
+            <option value="">Select employee...</option>
+            ${allUsers.map(u=>`<option value="${u.id}" ${t.assignedTo===u.id?'selected':''}>${u.name} — ${u.position}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-field">
+          <label>Status</label>
+          <select id="et-status">
+            <option value="todo"        ${t.status==='todo'       ?'selected':''}>To Do</option>
+            <option value="in_progress" ${t.status==='in_progress'?'selected':''}>In Progress</option>
+            <option value="review"      ${t.status==='review'     ?'selected':''}>In Review</option>
+            <option value="completed"   ${t.status==='completed'  ?'selected':''}>Completed</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row cols-2">
+        <div class="form-field">
+          <label>Priority</label>
+          <select id="et-priority">
+            <option value="low"      ${t.priority==='low'     ?'selected':''}>🟢 Low</option>
+            <option value="medium"   ${t.priority==='medium'  ?'selected':''}>🟡 Medium</option>
+            <option value="high"     ${t.priority==='high'    ?'selected':''}>🟠 High</option>
+            <option value="critical" ${t.priority==='critical'?'selected':''}>🔴 Critical</option>
+          </select>
+        </div>
+        <div class="form-field">
+          <label>Due Date *</label>
+          <input type="date" id="et-due" value="${t.dueDate||''}">
+        </div>
+      </div>
+      <div class="form-field">
+        <label>Tags (comma separated)</label>
+        <input type="text" id="et-tags" value="${(t.tags||[]).join(', ')}">
+      </div>
+      ${(t.subtasks||[]).length > 0 ? `
+        <div class="form-field">
+          <label>Subtasks</label>
+          <div style="border:1px solid var(--border);border-radius:var(--radius);padding:10px 14px;display:flex;flex-direction:column;gap:8px;">
+            ${t.subtasks.map(s=>`
+              <div style="display:flex;align-items:center;gap:10px">
+                <input type="checkbox" id="et-sub-${s.id}" ${s.done?'checked':''} style="width:15px;height:15px;cursor:pointer">
+                <span style="font-size:13px">${s.title}</span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      ` : ''}
+      <div style="display:flex;gap:10px;padding-top:4px;">
+        <button class="btn btn-primary" onclick="submitEditTask('${taskId}')">✓ Save Changes</button>
+        <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      </div>
+    </div>
+  `;
+  openModal();
+}
+
+function submitEditTask(taskId) {
+  const title    = document.getElementById('et-title').value.trim();
+  const assignee = document.getElementById('et-assignee').value;
+  const due      = document.getElementById('et-due').value;
+  if (!title || !assignee || !due) { H.notify('Fill required fields', 'error'); return; }
+  Store.set(data => {
+    const t = data.tasks.find(x => x.id === taskId);
+    if (!t) return data;
+    t.title       = title;
+    t.projectId   = document.getElementById('et-project').value || null;
+    t.description = document.getElementById('et-desc').value;
+    t.assignedTo  = assignee;
+    t.status      = document.getElementById('et-status').value;
+    t.priority    = document.getElementById('et-priority').value;
+    t.dueDate     = due;
+    t.tags        = document.getElementById('et-tags').value.split(',').map(s=>s.trim()).filter(Boolean);
+    if (t.status === 'completed' && !t.completedAt) t.completedAt = new Date().toISOString();
+    if (t.status !== 'completed') t.completedAt = null;
+    // Update subtask done states
+    (t.subtasks||[]).forEach(s => {
+      const cb = document.getElementById(`et-sub-${s.id}`);
+      if (cb) s.done = cb.checked;
+    });
+    return data;
+  });
+  closeModal();
+  H.notify(`Task "${title}" updated!`, 'success');
+  renderAllTasks();
+}
+
+
   if (currentUser.role !== 'super_admin') { navigate('dashboard'); return; }
   const data = Store.get();
   const container = document.getElementById('users-content');
