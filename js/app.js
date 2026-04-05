@@ -1597,8 +1597,35 @@ function renderTaskCreate() {
   if (!Auth.can(currentUser, 'create_task')) { H.notify('Access denied','error'); navigate('my-tasks'); return; }
   const data = Store.get();
   const container = document.getElementById('taskcreate-content');
-  // ✅ Only ACTIVE users (employees + managers)
-  const employees = data.users.filter(u => (u.role === 'employee' || u.role === 'manager') && u.active);
+  // All active non-admin users available as assignees
+  const allAssignees = data.users.filter(u => (u.role === 'employee' || u.role === 'manager') && u.active);
+
+  function buildAssigneeOptions(projectId) {
+    if (!projectId) {
+      // No project selected → show everyone
+      return allAssignees.map(u =>
+        `<option value="${u.id}">${u.name} — ${u.position} (${u.department})</option>`
+      ).join('');
+    }
+    const proj = data.projects.find(p => p.id === projectId);
+    if (!proj || !proj.teamIds || proj.teamIds.length === 0) {
+      // Project has no team assigned → fall back to all
+      return allAssignees.map(u =>
+        `<option value="${u.id}">${u.name} — ${u.position} (${u.department})</option>`
+      ).join('');
+    }
+    // Filter to project team members only
+    const teamMembers = allAssignees.filter(u => proj.teamIds.includes(u.id));
+    if (teamMembers.length === 0) {
+      // Team IDs set but none match active employees (edge case) → show all
+      return allAssignees.map(u =>
+        `<option value="${u.id}">${u.name} — ${u.position} (${u.department})</option>`
+      ).join('');
+    }
+    return teamMembers.map(u =>
+      `<option value="${u.id}">${u.name} — ${u.position} (${u.department})</option>`
+    ).join('');
+  }
 
   container.innerHTML = `
     <div class="fade-up" style="max-width:760px;">
@@ -1610,7 +1637,7 @@ function renderTaskCreate() {
           </div>
           <div class="form-field">
             <label>Project</label>
-            <select id="tc-project">
+            <select id="tc-project" onchange="updateTaskAssignees()">
               <option value="">— No Project —</option>
               ${data.projects.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}
             </select>
@@ -1625,13 +1652,18 @@ function renderTaskCreate() {
         <div class="form-row cols-2">
           <div class="form-field">
             <label>Assign To *</label>
-            <select id="tc-assignee">
-              <option value="">Select employee...</option>
-              ${employees.length
-                ? employees.map(u=>`<option value="${u.id}">${u.name} — ${u.position} (${u.department})</option>`).join('')
-                : '<option disabled>No active employees found</option>'
-              }
-            </select>
+            <div style="position:relative">
+              <select id="tc-assignee">
+                <option value="">Select employee...</option>
+                ${allAssignees.length
+                  ? allAssignees.map(u=>`<option value="${u.id}">${u.name} — ${u.position} (${u.department})</option>`).join('')
+                  : '<option disabled>No active employees found</option>'
+                }
+              </select>
+              <div id="tc-assignee-hint" style="font-size:11px;color:var(--text-3);margin-top:4px">
+                Select a project above to filter to its team members
+              </div>
+            </div>
           </div>
           <div class="form-field">
             <label>Priority</label>
@@ -1680,6 +1712,47 @@ function renderTaskCreate() {
       </div>
     </div>
   `;
+}
+
+// Called whenever the project dropdown changes — updates assignee list to project team
+function updateTaskAssignees() {
+  const data = Store.get();
+  const projectId = document.getElementById('tc-project')?.value;
+  const assigneeSelect = document.getElementById('tc-assignee');
+  const hint = document.getElementById('tc-assignee-hint');
+  if (!assigneeSelect) return;
+
+  const allAssignees = data.users.filter(u => (u.role === 'employee' || u.role === 'manager') && u.active);
+  const previousValue = assigneeSelect.value;
+
+  let members = allAssignees;
+  let hintText = 'Select a project above to filter to its team members';
+
+  if (projectId) {
+    const proj = data.projects.find(p => p.id === projectId);
+    const teamMembers = proj?.teamIds?.length
+      ? allAssignees.filter(u => proj.teamIds.includes(u.id))
+      : [];
+
+    if (teamMembers.length > 0) {
+      members = teamMembers;
+      hintText = `Showing ${teamMembers.length} team member${teamMembers.length !== 1 ? 's' : ''} assigned to this project`;
+    } else {
+      hintText = 'No team members on this project — showing all employees';
+    }
+  }
+
+  assigneeSelect.innerHTML = `
+    <option value="">Select employee...</option>
+    ${members.map(u => `<option value="${u.id}">${u.name} — ${u.position} (${u.department})</option>`).join('')}
+  `;
+
+  // Restore previous selection if the user is still in the filtered list
+  if (previousValue && members.find(u => u.id === previousValue)) {
+    assigneeSelect.value = previousValue;
+  }
+
+  if (hint) hint.textContent = hintText;
 }
 
 // ── Subtask row management ──────────────────────
