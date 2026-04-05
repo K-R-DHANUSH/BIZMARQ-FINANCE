@@ -2443,8 +2443,9 @@ function showProjectDetail(projId) {
   if (!p) return;
   const manager = H.getUserById(p.managerId);
   const tasks = data.tasks.filter(t=>t.projectId===projId);
-  const team = p.teamIds.map(id=>H.getUserById(id)).filter(Boolean);
-  document.getElementById('modal-title').textContent = p.name;
+  const team = (p.teamIds||[]).map(id=>H.getUserById(id)).filter(Boolean);
+  const canEdit = Auth.can(currentUser, 'create_project');
+  document.getElementById('modal-title').textContent = `${p.code} — ${p.name}`;
   document.getElementById('modal-confirm').style.display = 'none';
   const body = document.getElementById('modal-body');
   body.innerHTML = `
@@ -2452,6 +2453,7 @@ function showProjectDetail(projId) {
       <span class="badge ${H.statusBadge(p.status)}">${p.status}</span>
       <span class="badge ${H.statusBadge(p.priority)}">${H.priorityIcon(p.priority)} ${p.priority}</span>
       <span class="badge badge-muted">📅 ${H.fmt(p.startDate)} → ${H.fmt(p.endDate)}</span>
+      ${canEdit ? `<button class="btn btn-ghost btn-sm" style="margin-left:auto;font-size:12px" onclick="closeModal();openEditProjectModal('${p.id}')">✏️ Edit Project</button>` : ''}
     </div>
     <p style="color:var(--text-2);font-size:13px;line-height:1.7;margin-bottom:16px">${p.description}</p>
     <div style="margin-bottom:16px">
@@ -2464,18 +2466,21 @@ function showProjectDetail(projId) {
       <div>
         <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--text-3);margin-bottom:8px">Manager</div>
         <div class="user-pill">
-          <div class="pill-avatar">${manager?.avatar}</div>
-          ${manager?.name}
+          <div class="pill-avatar">${manager?.avatar||'?'}</div>
+          ${manager?.name||'—'}
         </div>
       </div>
       <div>
         <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--text-3);margin-bottom:8px">Team (${team.length})</div>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
-          ${team.map(u=>`<div class="user-pill"><div class="pill-avatar">${u.avatar}</div>${u.name.split(' ')[0]}</div>`).join('')}
+          ${team.length
+            ? team.map(u=>`<div class="user-pill"><div class="pill-avatar">${u.avatar}</div>${u.name.split(' ')[0]}</div>`).join('')
+            : '<span style="font-size:12px;color:var(--text-3)">No team members assigned</span>'
+          }
         </div>
       </div>
     </div>
-    ${p.objectives.length ? `
+    ${(p.objectives||[]).length ? `
       <div style="margin-bottom:16px">
         <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--text-3);margin-bottom:8px">Objectives</div>
         ${p.objectives.map(o=>`<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:13px;color:var(--text-2)">▸ ${o}</div>`).join('')}
@@ -2491,7 +2496,7 @@ function showProjectDetail(projId) {
           <div class="user-pill"><div class="pill-avatar">${assignee?.avatar||'?'}</div>${assignee?.name?.split(' ')[0]||'?'}</div>
           <span class="badge ${H.statusBadge(t.status)}">${t.status.replace('_',' ')}</span>
         </div>`;
-      }).join('') || '<div style="color:var(--text-3);font-size:13px">No tasks yet</div>'}
+      }).join('') || '<div style="color:var(--text-3);font-size:13px;padding:12px 0">No tasks yet</div>'}
     </div>
   `;
   document.getElementById('modal-confirm').style.display = '';
@@ -2516,7 +2521,7 @@ function showTaskDetail(taskId) {
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
       <span class="badge ${H.statusBadge(t.status)}">${t.status.replace('_',' ')}</span>
       <span class="badge ${H.statusBadge(t.priority)}">${H.priorityIcon(t.priority)} ${t.priority}</span>
-      ${project?`<span class="badge badge-muted">📁 ${project.name}</span>`:''}
+      ${project?`<span class="badge badge-muted">📁 ${project.code} — ${project.name}</span>`:''}
     </div>
     <p style="color:var(--text-2);font-size:13px;line-height:1.7;margin-bottom:16px">${t.description||'No description provided.'}</p>
     <div class="grid-2" style="gap:16px;margin-bottom:16px">
