@@ -4,6 +4,13 @@
 
 let currentUser = null;
 
+// applyTheme is defined in app.html inline script - stub for safety
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  const btn = document.getElementById('theme-btn');
+  if (btn) btn.textContent = theme === 'dark' ? '☀️' : '🌙';
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   currentUser = Auth.requireAuth();
   if (!currentUser) return;
@@ -74,6 +81,9 @@ function buildNavItems() {
       { page: 'users', icon: '◎', name: 'User Management' }
     ]});
   }
+  groups.push({ label: 'Personal', items: [
+    { page: 'settings', icon: '⚙', name: 'Settings' }
+  ]});
   return groups;
 }
 
@@ -95,7 +105,8 @@ function navigate(page) {
     'chat': renderChat,
     'task-create': renderTaskCreate,
     'project-create': renderProjectCreate,
-    'users': renderUsers
+    'users': renderUsers,
+    'settings': renderSettings
   };
   if (renders[page]) renders[page]();
 }
@@ -111,20 +122,25 @@ function renderDashboard() {
   const pendingTasks = myTasks.filter(t => t.status !== 'completed').length;
   const completedTasks = myTasks.filter(t => t.status === 'completed').length;
   const container = document.getElementById('dashboard-content');
+  const isSA = currentUser.role === 'super_admin';
+
   container.innerHTML = `
     <div class="fade-up">
       <!-- Company Hero -->
-      <div class="card" style="background:linear-gradient(135deg,#eff6ff,#eef2ff);margin-bottom:24px;border-color:#bfdbfe;">
+      <div class="card" style="background:linear-gradient(135deg,var(--accent-glow),#eef2ff20);margin-bottom:24px;border-color:var(--border);">
         <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;">
           <div style="font-size:52px">${c.logo}</div>
-          <div>
-            <h1 style="font-size:28px;letter-spacing:-1px">${c.name}</h1>
+          <div style="flex:1">
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+              <h1 style="font-size:26px;letter-spacing:-1px">${isSA ? `<span class="editable-field" onclick="editCompanyField('name','${c.name}')">${c.name}</span>` : c.name}</h1>
+              ${isSA ? `<button class="btn btn-ghost btn-sm" onclick="openEditCompanyModal()" style="font-size:11px">✏️ Edit Company</button>` : ''}
+            </div>
             <p style="color:var(--text-3);font-family:var(--font-mono);font-size:12px;margin-top:4px;letter-spacing:1px">${c.tagline}</p>
             <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;">
               ${c.values.map(v => `<span class="badge badge-info">${v}</span>`).join('')}
             </div>
           </div>
-          <div style="margin-left:auto;text-align:right">
+          <div style="text-align:right">
             <div style="font-size:11px;color:var(--text-3);text-transform:uppercase;letter-spacing:1px">Founded</div>
             <div style="font-size:24px;font-family:var(--font-head);font-weight:800">${c.founded}</div>
           </div>
@@ -158,7 +174,10 @@ function renderDashboard() {
       <div class="grid-2" style="margin-bottom:24px;">
         <!-- Mission & Vision -->
         <div class="card">
-          <div class="card-header"><div class="card-title">Mission & Vision</div></div>
+          <div class="card-header">
+            <div class="card-title">Mission & Vision</div>
+            ${isSA ? `<button class="btn btn-ghost btn-sm" onclick="openEditMissionModal()" style="font-size:11px">✏️ Edit</button>` : ''}
+          </div>
           <div style="margin-bottom:16px;">
             <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--accent);margin-bottom:8px;font-weight:700">Our Mission</div>
             <p style="font-size:13px;color:var(--text-2);line-height:1.7">${c.mission}</p>
@@ -235,6 +254,71 @@ function renderDashboard() {
   `;
 }
 
+// ─── Edit Company Info (Super Admin) ─────────
+function openEditCompanyModal() {
+  const data = Store.get();
+  const c = data.company;
+  document.getElementById('modal-title').textContent = 'Edit Company Details';
+  document.getElementById('modal-confirm').textContent = '✓ Save';
+  document.getElementById('modal-body').innerHTML = `
+    <div class="form-row">
+      <div class="form-field"><label>Company Name *</label><input id="ec-name" value="${c.name}"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-field"><label>Tagline</label><input id="ec-tagline" value="${c.tagline}"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-field"><label>Founded Year</label><input id="ec-founded" value="${c.founded}"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-field"><label>Company Values (comma separated)</label>
+        <input id="ec-values" value="${c.values.join(', ')}">
+      </div>
+    </div>
+  `;
+  document.getElementById('modal-confirm').onclick = () => {
+    const name = document.getElementById('ec-name').value.trim();
+    if (!name) { H.notify('Company name required','error'); return; }
+    Store.set(data => {
+      data.company.name = name;
+      data.company.tagline = document.getElementById('ec-tagline').value.trim();
+      data.company.founded = document.getElementById('ec-founded').value.trim();
+      data.company.values = document.getElementById('ec-values').value.split(',').map(v=>v.trim()).filter(Boolean);
+      return data;
+    });
+    closeModal(); H.notify('Company info updated!','success'); renderDashboard();
+  };
+  openModal();
+}
+
+function openEditMissionModal() {
+  const data = Store.get();
+  const c = data.company;
+  document.getElementById('modal-title').textContent = 'Edit Mission & Vision';
+  document.getElementById('modal-confirm').textContent = '✓ Save';
+  document.getElementById('modal-body').innerHTML = `
+    <div class="form-row">
+      <div class="form-field"><label>Mission Statement</label>
+        <textarea id="ec-mission" rows="4">${c.mission}</textarea>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-field"><label>Vision Statement</label>
+        <textarea id="ec-vision" rows="4">${c.vision}</textarea>
+      </div>
+    </div>
+  `;
+  document.getElementById('modal-confirm').onclick = () => {
+    Store.set(data => {
+      data.company.mission = document.getElementById('ec-mission').value.trim();
+      data.company.vision = document.getElementById('ec-vision').value.trim();
+      return data;
+    });
+    closeModal(); H.notify('Mission & Vision updated!','success'); renderDashboard();
+  };
+  openModal();
+}
+
 // ═══════════════════════════════════════════════
 //  PAGE: ORGANIZATION
 // ═══════════════════════════════════════════════
@@ -255,9 +339,89 @@ function renderOrganization() {
 }
 
 function buildOrgHierarchy(data) {
-  const ceo = data.users.find(u => u.managerId === null);
+  // Top-level: show classic reporting tree
+  const ceo = data.users.find(u => u.managerId === null && u.active);
   if (!ceo) return '<div class="empty-state"><div class="empty-icon">◫</div><p>No hierarchy defined</p></div>';
-  return `<div class="org-chart">${renderOrgNode(ceo, data.users)}</div>`;
+
+  return `
+    <div style="overflow-x:auto;padding:10px 0;">
+      <div style="display:flex;flex-direction:column;align-items:center;">
+        ${renderOrgNode(ceo, data.users)}
+      </div>
+    </div>
+
+    <div style="margin-top:40px;">
+      <div style="font-size:13px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.8px;margin-bottom:20px;padding-bottom:10px;border-bottom:1px solid var(--border);">
+        Division & Department Structure
+      </div>
+      ${data.divisions.map(div => {
+        const depts = data.departments.filter(d => d.divisionId === div.id);
+        const divMembers = data.users.filter(u => u.division === div.name && u.active);
+        if (divMembers.length === 0 && depts.length === 0) return '';
+        return `
+          <div class="org-division-block">
+            <div class="org-division-header">
+              <span style="font-size:18px">◫</span>
+              <div>
+                <div>${div.name}</div>
+                <div style="font-size:11px;font-weight:400;opacity:.8">${div.description}</div>
+              </div>
+              <span class="badge" style="background:rgba(255,255,255,.2);color:#fff;margin-left:auto">${divMembers.length} members</span>
+            </div>
+            <div class="org-dept-row">
+              ${depts.map(dept => {
+                const members = data.users.filter(u => u.department === dept.name && u.active);
+                return `
+                  <div class="org-dept-block">
+                    <div class="org-dept-title">${dept.name}</div>
+                    <div class="org-dept-members">
+                      ${members.length === 0 
+                        ? `<div style="color:var(--text-3);font-size:11px;text-align:center;padding:8px">No members assigned</div>`
+                        : members.map(m => {
+                            const mgr = m.managerId ? H.getUserById(m.managerId) : null;
+                            return `
+                              <div class="org-member-row" onclick="showUserProfile('${m.id}')">
+                                <div class="avatar" style="width:32px;height:32px;font-size:11px;flex-shrink:0">${m.avatar}</div>
+                                <div style="flex:1;min-width:0">
+                                  <div class="org-member-name">${m.name}</div>
+                                  <div class="org-member-pos">${m.position}</div>
+                                  ${mgr ? `<div class="org-reports-to">↑ ${mgr.name}</div>` : ''}
+                                </div>
+                                <span class="badge ${m.role==='super_admin'?'badge-info':m.role==='manager'?'badge-success':'badge-muted'}" style="font-size:10px;flex-shrink:0">${m.role==='super_admin'?'Admin':m.role==='manager'?'Mgr':'Emp'}</span>
+                              </div>
+                            `;
+                          }).join('')}
+                    </div>
+                  </div>
+                `;
+              }).join('')}
+              ${(() => {
+                // People in this division but no specific dept assigned
+                const unassigned = divMembers.filter(u => !depts.find(d => d.name === u.department));
+                if (unassigned.length === 0) return '';
+                return `
+                  <div class="org-dept-block" style="border-style:dashed">
+                    <div class="org-dept-title" style="color:var(--text-3)">Unassigned Department</div>
+                    <div class="org-dept-members">
+                      ${unassigned.map(m => `
+                        <div class="org-member-row" onclick="showUserProfile('${m.id}')">
+                          <div class="avatar" style="width:32px;height:32px;font-size:11px;flex-shrink:0">${m.avatar}</div>
+                          <div style="flex:1">
+                            <div class="org-member-name">${m.name}</div>
+                            <div class="org-member-pos">${m.position}</div>
+                          </div>
+                        </div>
+                      `).join('')}
+                    </div>
+                  </div>
+                `;
+              })()}
+            </div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
 }
 
 function renderOrgNode(user, allUsers) {
@@ -592,6 +756,7 @@ function renderProjects() {
 function renderProjectCard(p, data) {
   const manager = H.getUserById(p.managerId);
   const tasks = data.tasks.filter(t => t.projectId === p.id);
+  const isSA = currentUser.role === 'super_admin';
   return `
     <div class="card" style="cursor:pointer" onclick="showProjectDetail('${p.id}')">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;">
@@ -599,7 +764,10 @@ function renderProjectCard(p, data) {
           <div style="font-size:10px;font-family:var(--font-mono);color:var(--text-3);margin-bottom:4px">${p.code}</div>
           <div style="font-size:15px;font-weight:700;font-family:var(--font-head)">${p.name}</div>
         </div>
-        <span class="badge ${H.statusBadge(p.status)}">${p.status}</span>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span class="badge ${H.statusBadge(p.status)}">${p.status}</span>
+          ${isSA ? `<button class="btn btn-danger btn-sm btn-icon" onclick="event.stopPropagation();deleteProject('${p.id}')" title="Delete project" style="font-size:13px">🗑</button>` : ''}
+        </div>
       </div>
       <p style="font-size:12px;color:var(--text-3);margin-bottom:16px;line-height:1.6">${p.description.slice(0,90)}...</p>
       <div style="margin-bottom:16px;">
@@ -622,6 +790,19 @@ function renderProjectCard(p, data) {
       </div>
     </div>
   `;
+}
+
+function deleteProject(projId) {
+  const data = Store.get();
+  const p = data.projects.find(x => x.id === projId);
+  if (!confirm(`Delete project "${p?.name}"? All associated tasks will also be removed. This cannot be undone.`)) return;
+  Store.set(data => {
+    data.projects = data.projects.filter(x => x.id !== projId);
+    data.tasks = data.tasks.filter(t => t.projectId !== projId);
+    return data;
+  });
+  H.notify('Project deleted', 'success');
+  renderProjects();
 }
 
 // ═══════════════════════════════════════════════
@@ -1435,6 +1616,308 @@ function deleteUser(userId) {
   else renderOrganization();
 }
 
+// ═══════════════════════════════════════════════
+//  PAGE: SETTINGS
+// ═══════════════════════════════════════════════
+function renderSettings() {
+  const data = Store.get();
+  const u = H.getUserById(currentUser.id);
+  const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
+
+  const allSkills = {
+    'Technical': ['JavaScript','Python','Java','React','Node.js','SQL','AWS','Docker','Kubernetes','TypeScript','Go','Rust','C++','Swift','Flutter'],
+    'Design': ['Figma','Adobe XD','UI/UX','Prototyping','User Research','Illustration','Motion Design','Brand Identity'],
+    'Management': ['Agile/Scrum','Project Planning','Risk Management','Stakeholder Management','Team Leadership','OKRs','Budgeting'],
+    'Communication': ['Technical Writing','Presentation','Negotiation','Mentoring','Client Relations','Public Speaking'],
+    'Data': ['Data Analysis','Machine Learning','Power BI','Tableau','Excel','Statistics','Data Engineering']
+  };
+
+  const userSkills = u.skills || [];
+
+  const container = document.getElementById('settings-content');
+  container.innerHTML = `
+    <div class="settings-grid fade-up">
+      <!-- Settings Nav -->
+      <div>
+        <div class="card" style="padding:8px;">
+          <div class="settings-nav">
+            <div class="settings-nav-item active" onclick="switchSettingsTab(this,'s-profile')">👤 Profile</div>
+            <div class="settings-nav-item" onclick="switchSettingsTab(this,'s-theme')">🎨 Appearance</div>
+            <div class="settings-nav-item" onclick="switchSettingsTab(this,'s-skills')">⚡ Skills & Expertise</div>
+            <div class="settings-nav-item" onclick="switchSettingsTab(this,'s-career')">📈 Career Details</div>
+            <div class="settings-nav-item" onclick="switchSettingsTab(this,'s-security')">🔒 Security</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Settings Content -->
+      <div>
+        <!-- Profile -->
+        <div id="s-profile" class="settings-section active">
+          <div class="card">
+            <span class="settings-label">Personal Information</span>
+            <div style="display:flex;align-items:center;gap:20px;margin-bottom:28px;padding-bottom:20px;border-bottom:1px solid var(--border)">
+              <div class="avatar xl" style="font-size:26px">${u.avatar}</div>
+              <div>
+                <div style="font-size:18px;font-weight:700;font-family:var(--font-head)">${u.name}</div>
+                <div style="font-size:13px;color:var(--text-3);margin-top:2px">${u.position} · ${u.department}</div>
+                <div style="margin-top:8px;">
+                  <span class="badge ${u.role==='super_admin'?'badge-info':u.role==='manager'?'badge-success':'badge-muted'}">${u.role.replace('_',' ')}</span>
+                  <span class="badge ${u.active?'badge-success':'badge-danger'}" style="margin-left:4px">${u.active?'Active':'Inactive'}</span>
+                </div>
+              </div>
+            </div>
+            <div class="form-row cols-2">
+              <div class="form-field"><label>Full Name</label><input id="sp-name" value="${u.name}"></div>
+              <div class="form-field"><label>Username</label><input value="${u.username}" disabled style="opacity:.6"></div>
+            </div>
+            <div class="form-row cols-2">
+              <div class="form-field"><label>Email</label><input id="sp-email" type="email" value="${u.email}"></div>
+              <div class="form-field"><label>Phone</label><input id="sp-phone" value="${u.phone||''}"></div>
+            </div>
+            <div class="form-row">
+              <div class="form-field"><label>Bio / About Me</label>
+                <textarea id="sp-bio" rows="3" placeholder="Tell your team about yourself...">${u.bio||''}</textarea>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-field"><label>LinkedIn URL</label><input id="sp-linkedin" value="${u.linkedin||''}" placeholder="https://linkedin.com/in/yourname"></div>
+            </div>
+            <button class="btn btn-primary" onclick="saveProfileSettings()">✓ Save Profile</button>
+          </div>
+        </div>
+
+        <!-- Appearance / Theme -->
+        <div id="s-theme" class="settings-section">
+          <div class="card">
+            <span class="settings-label">Theme & Appearance</span>
+            <div style="margin-bottom:24px;">
+              <div style="font-size:13px;font-weight:600;margin-bottom:14px">Color Theme</div>
+              <div class="grid-2" style="max-width:480px;gap:14px;">
+                <div class="theme-option ${currentTheme==='light'?'active':''}" onclick="selectTheme('light',this)">
+                  <div style="height:64px;border-radius:8px;background:#f0f2f5;border:1px solid #e4e7ed;display:flex;align-items:center;justify-content:center;gap:6px;margin-bottom:10px">
+                    <div style="width:20px;height:20px;border-radius:4px;background:#fff;border:1px solid #e4e7ed"></div>
+                    <div style="width:60px;height:10px;border-radius:4px;background:#e4e7ed"></div>
+                    <div style="width:16px;height:16px;border-radius:50%;background:#2563eb"></div>
+                  </div>
+                  <div style="font-size:13px;font-weight:600">☀️ Light Mode</div>
+                  <div style="font-size:11px;color:var(--text-3);margin-top:2px">Clean & bright interface</div>
+                </div>
+                <div class="theme-option ${currentTheme==='dark'?'active':''}" onclick="selectTheme('dark',this)">
+                  <div style="height:64px;border-radius:8px;background:#0e1117;border:1px solid #2a3450;display:flex;align-items:center;justify-content:center;gap:6px;margin-bottom:10px">
+                    <div style="width:20px;height:20px;border-radius:4px;background:#1c2333;border:1px solid #2a3450"></div>
+                    <div style="width:60px;height:10px;border-radius:4px;background:#2a3450"></div>
+                    <div style="width:16px;height:16px;border-radius:50%;background:#4f8ef7"></div>
+                  </div>
+                  <div style="font-size:13px;font-weight:600">🌙 Dark Mode</div>
+                  <div style="font-size:11px;color:var(--text-3);margin-top:2px">Easy on the eyes</div>
+                </div>
+              </div>
+            </div>
+            <div style="padding:16px;background:var(--bg-base);border-radius:var(--radius);border:1px solid var(--border)">
+              <div style="font-size:12px;font-weight:600;margin-bottom:4px">Current theme: <span style="color:var(--accent)">${currentTheme === 'dark' ? '🌙 Dark Mode' : '☀️ Light Mode'}</span></div>
+              <div style="font-size:12px;color:var(--text-3)">Theme preference is saved to your profile and synced across sessions.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Skills -->
+        <div id="s-skills" class="settings-section">
+          <div class="card">
+            <span class="settings-label">Skills & Expertise</span>
+            <p style="font-size:13px;color:var(--text-2);margin-bottom:20px;line-height:1.6">Select your skills. Managers use this information for optimal task and role assignment.</p>
+            ${Object.entries(allSkills).map(([cat, skills]) => `
+              <div style="margin-bottom:20px">
+                <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--text-3);margin-bottom:10px">${cat}</div>
+                <div>
+                  ${skills.map(skill => `
+                    <span class="skill-tag ${userSkills.includes(skill)?'selected':''}" onclick="toggleSkill(this,'${skill}')">${skill}</span>
+                  `).join('')}
+                </div>
+              </div>
+            `).join('')}
+            <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
+              <div style="font-size:12px;color:var(--text-3);margin-bottom:12px">Selected: <strong style="color:var(--accent)" id="skill-count">${userSkills.length}</strong> skills</div>
+              <button class="btn btn-primary" onclick="saveSkills()">✓ Save Skills</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Career Details -->
+        <div id="s-career" class="settings-section">
+          <div class="card">
+            <span class="settings-label">Career & Professional Details</span>
+            <div class="form-row cols-2">
+              <div class="form-field"><label>Current Position</label><input id="sc-position" value="${u.position||''}"></div>
+              <div class="form-field"><label>Department</label><input id="sc-dept" value="${u.department||''}"></div>
+            </div>
+            <div class="form-row cols-2">
+              <div class="form-field"><label>Years of Experience</label>
+                <select id="sc-exp">
+                  ${['0-1 years','1-3 years','3-5 years','5-8 years','8-12 years','12+ years'].map(y => `<option ${u.experience===y?'selected':''}>${y}</option>`).join('')}
+                </select>
+              </div>
+              <div class="form-field"><label>Employment Type</label>
+                <select id="sc-emptype">
+                  ${['Full-time','Part-time','Contract','Intern','Freelance'].map(t => `<option ${u.employmentType===t?'selected':''}>${t}</option>`).join('')}
+                </select>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-field"><label>Certifications (one per line)</label>
+                <textarea id="sc-certs" rows="3" placeholder="AWS Certified Developer&#10;PMP Certified">${(u.certifications||[]).join('\n')}</textarea>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-field"><label>Career Goals</label>
+                <textarea id="sc-goals" rows="3" placeholder="What are your career aspirations...">${u.careerGoals||''}</textarea>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-field"><label>Availability for New Roles</label>
+                <select id="sc-avail">
+                  <option ${u.availability==='open'?'selected':''} value="open">🟢 Open to Opportunities</option>
+                  <option ${u.availability==='happy'?'selected':''} value="happy">🟡 Happy in Current Role</option>
+                  <option ${u.availability==='not_looking'?'selected':''} value="not_looking">🔴 Not Looking</option>
+                </select>
+              </div>
+            </div>
+            <button class="btn btn-primary" onclick="saveCareerSettings()">✓ Save Career Info</button>
+          </div>
+        </div>
+
+        <!-- Security -->
+        <div id="s-security" class="settings-section">
+          <div class="card">
+            <span class="settings-label">Change Password</span>
+            <div class="form-row">
+              <div class="form-field"><label>Current Password</label><input type="password" id="sec-old" placeholder="Enter current password"></div>
+            </div>
+            <div class="form-row">
+              <div class="form-field"><label>New Password</label><input type="password" id="sec-new" placeholder="Min 8 characters, include uppercase & number"></div>
+            </div>
+            <div class="form-row">
+              <div class="form-field"><label>Confirm New Password</label><input type="password" id="sec-confirm" placeholder="Re-enter new password"></div>
+            </div>
+            <button class="btn btn-primary" onclick="changePassword()">🔒 Update Password</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function switchSettingsTab(btn, sectionId) {
+  document.querySelectorAll('.settings-nav-item').forEach(i => i.classList.remove('active'));
+  document.querySelectorAll('.settings-section').forEach(s => s.classList.remove('active'));
+  btn.classList.add('active');
+  const sec = document.getElementById(sectionId);
+  if (sec) sec.classList.add('active');
+}
+
+function selectTheme(theme, el) {
+  document.querySelectorAll('.theme-option').forEach(o => o.classList.remove('active'));
+  el.classList.add('active');
+  applyTheme(theme);
+  localStorage.setItem('nexus_theme', theme);
+  Store.set(data => {
+    const u = data.users.find(x => x.id === currentUser?.id);
+    if (u) u.theme = theme;
+    return data;
+  });
+  H.notify(`${theme === 'dark' ? '🌙 Dark' : '☀️ Light'} mode activated!`, 'success');
+  // Re-render to reflect new theme labels
+  setTimeout(() => renderSettings(), 300);
+}
+
+let _pendingSkills = null;
+function toggleSkill(el, skill) {
+  const data = Store.get();
+  const u = data.users.find(x => x.id === currentUser.id);
+  if (!_pendingSkills) _pendingSkills = [...(u.skills || [])];
+  el.classList.toggle('selected');
+  if (el.classList.contains('selected')) {
+    if (!_pendingSkills.includes(skill)) _pendingSkills.push(skill);
+  } else {
+    _pendingSkills = _pendingSkills.filter(s => s !== skill);
+  }
+  const cnt = document.getElementById('skill-count');
+  if (cnt) cnt.textContent = _pendingSkills.length;
+}
+
+function saveSkills() {
+  const skills = _pendingSkills || [];
+  Store.set(data => {
+    const u = data.users.find(x => x.id === currentUser.id);
+    if (u) u.skills = skills;
+    return data;
+  });
+  _pendingSkills = null;
+  H.notify(`${skills.length} skills saved!`, 'success');
+}
+
+function saveProfileSettings() {
+  const name = document.getElementById('sp-name').value.trim();
+  if (!name) { H.notify('Name is required', 'error'); return; }
+  Store.set(data => {
+    const u = data.users.find(x => x.id === currentUser.id);
+    if (u) {
+      u.name = name;
+      u.email = document.getElementById('sp-email').value.trim();
+      u.phone = document.getElementById('sp-phone').value.trim();
+      u.bio = document.getElementById('sp-bio').value.trim();
+      u.linkedin = document.getElementById('sp-linkedin').value.trim();
+      // Update initials avatar
+      const parts = name.split(' ');
+      u.avatar = (parts[0][0] + (parts[1]?.[0]||'')).toUpperCase();
+    }
+    return data;
+  });
+  // Refresh currentUser
+  currentUser = Auth.current();
+  renderHeader();
+  H.notify('Profile updated!', 'success');
+}
+
+function saveCareerSettings() {
+  Store.set(data => {
+    const u = data.users.find(x => x.id === currentUser.id);
+    if (u) {
+      u.position = document.getElementById('sc-position').value.trim();
+      u.department = document.getElementById('sc-dept').value.trim();
+      u.experience = document.getElementById('sc-exp').value;
+      u.employmentType = document.getElementById('sc-emptype').value;
+      u.availability = document.getElementById('sc-avail').value;
+      u.certifications = document.getElementById('sc-certs').value.split('\n').map(c=>c.trim()).filter(Boolean);
+      u.careerGoals = document.getElementById('sc-goals').value.trim();
+    }
+    return data;
+  });
+  H.notify('Career info saved!', 'success');
+}
+
+function changePassword() {
+  const oldPass = document.getElementById('sec-old').value;
+  const newPass = document.getElementById('sec-new').value;
+  const confirm = document.getElementById('sec-confirm').value;
+  const data = Store.get();
+  const u = data.users.find(x => x.id === currentUser.id);
+  if (u.password !== oldPass) { H.notify('Current password is incorrect', 'error'); return; }
+  if (newPass.length < 8) { H.notify('New password must be at least 8 characters', 'error'); return; }
+  if (!/[A-Z]/.test(newPass)) { H.notify('Include at least one uppercase letter', 'error'); return; }
+  if (!/[0-9]/.test(newPass)) { H.notify('Include at least one number', 'error'); return; }
+  if (newPass !== confirm) { H.notify('Passwords do not match', 'error'); return; }
+  Store.set(data => {
+    const u = data.users.find(x => x.id === currentUser.id);
+    if (u) u.password = newPass;
+    return data;
+  });
+  document.getElementById('sec-old').value = '';
+  document.getElementById('sec-new').value = '';
+  document.getElementById('sec-confirm').value = '';
+  H.notify('Password updated successfully!', 'success');
+}
+
 // ─── Modal helpers ────────────────────────────
 function openModal() { document.getElementById('main-modal').classList.add('open'); }
 function closeModal() { document.getElementById('main-modal').classList.remove('open'); }
@@ -1564,16 +2047,19 @@ function showUserProfile(userId) {
   document.getElementById('modal-confirm').textContent = 'Close';
   document.getElementById('modal-confirm').onclick = closeModal;
   const body = document.getElementById('modal-body');
+  const skills = u.skills || [];
+  const availMap = { open: '🟢 Open to Opportunities', happy: '🟡 Happy in Role', not_looking: '🔴 Not Looking' };
   body.innerHTML = `
     <div style="display:flex;align-items:center;gap:20px;margin-bottom:24px;padding-bottom:24px;border-bottom:1px solid var(--border)">
       <div class="avatar xl">${u.avatar}</div>
-      <div>
+      <div style="flex:1">
         <div style="font-size:20px;font-family:var(--font-head);font-weight:700">${u.name}</div>
         <div style="color:var(--text-3);font-size:13px;margin-top:4px">${u.position}</div>
         <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
           <span class="badge ${u.role==='super_admin'?'badge-info':u.role==='manager'?'badge-success':'badge-muted'}">${u.role.replace('_',' ')}</span>
           <span class="badge badge-muted">${u.department}</span>
           <span class="badge ${u.active?'badge-success':'badge-danger'}">${u.active?'Active':'Inactive'}</span>
+          ${u.availability ? `<span class="badge badge-muted" style="font-size:10px">${availMap[u.availability]||''}</span>` : ''}
         </div>
       </div>
     </div>
@@ -1582,15 +2068,31 @@ function showUserProfile(userId) {
       <div><div style="font-size:11px;color:var(--text-3);margin-bottom:4px">Phone</div><div style="font-size:13px">${u.phone||'—'}</div></div>
       <div><div style="font-size:11px;color:var(--text-3);margin-bottom:4px">Division</div><div style="font-size:13px">${u.division}</div></div>
       <div><div style="font-size:11px;color:var(--text-3);margin-bottom:4px">Joined</div><div style="font-size:13px">${H.fmt(u.createdAt)}</div></div>
+      ${u.experience ? `<div><div style="font-size:11px;color:var(--text-3);margin-bottom:4px">Experience</div><div style="font-size:13px">${u.experience}</div></div>` : ''}
+      ${u.employmentType ? `<div><div style="font-size:11px;color:var(--text-3);margin-bottom:4px">Employment</div><div style="font-size:13px">${u.employmentType}</div></div>` : ''}
     </div>
+    ${u.bio ? `<div style="margin-bottom:16px;padding:12px;background:var(--bg-base);border-radius:var(--radius);border:1px solid var(--border)"><div style="font-size:11px;color:var(--text-3);margin-bottom:6px">About</div><div style="font-size:13px;color:var(--text-2);line-height:1.6">${u.bio}</div></div>` : ''}
     ${manager ? `<div style="margin-bottom:16px"><div style="font-size:11px;color:var(--text-3);margin-bottom:8px">Reports To</div>
       <div class="user-pill"><div class="pill-avatar">${manager.avatar}</div>${manager.name} — ${manager.position}</div>
     </div>` : ''}
-    ${directReports.length ? `<div><div style="font-size:11px;color:var(--text-3);margin-bottom:8px">Direct Reports (${directReports.length})</div>
+    ${directReports.length ? `<div style="margin-bottom:16px"><div style="font-size:11px;color:var(--text-3);margin-bottom:8px">Direct Reports (${directReports.length})</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         ${directReports.map(r=>`<div class="user-pill"><div class="pill-avatar">${r.avatar}</div>${r.name}</div>`).join('')}
       </div>
     </div>` : ''}
+    ${skills.length ? `
+      <div style="margin-bottom:16px">
+        <div style="font-size:11px;color:var(--text-3);margin-bottom:8px">Skills (${skills.length})</div>
+        <div>${skills.map(s=>`<span class="skill-tag selected" style="cursor:default">${s}</span>`).join('')}</div>
+      </div>
+    ` : ''}
+    ${u.certifications?.length ? `
+      <div style="margin-bottom:16px">
+        <div style="font-size:11px;color:var(--text-3);margin-bottom:8px">Certifications</div>
+        ${u.certifications.map(c=>`<div style="font-size:12px;padding:4px 0;color:var(--text-2)">🏆 ${c}</div>`).join('')}
+      </div>
+    ` : ''}
+    ${u.linkedin ? `<div><a href="${u.linkedin}" target="_blank" style="font-size:12px;color:var(--accent)">🔗 LinkedIn Profile</a></div>` : ''}
   `;
   openModal();
 }
