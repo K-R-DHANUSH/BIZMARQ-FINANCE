@@ -234,18 +234,18 @@ function renderDashboard() {
           </div>
         </div>
 
-        <!-- Active Projects -->
+        <!-- Current Projects -->
         <div class="card">
           <div class="card-header">
-            <div class="card-title">Active Projects</div>
+            <div class="card-title">Current Projects</div>
             <button class="btn btn-ghost btn-sm" onclick="navigate('projects')">View All</button>
           </div>
-          ${data.projects.filter(p=>p.status==='active').slice(0,3).map(p => `
+          ${data.projects.filter(p=>p.status!=='completed').slice(0,3).map(p => `
             <div style="margin-bottom:18px;">
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
                 <div>
                   <div style="font-size:13px;font-weight:600">${p.name}</div>
-                  <div style="font-size:11px;color:var(--text-3)">${p.code}</div>
+                  <div style="font-size:11px;color:var(--text-3)">${p.code} · <span class="badge ${H.statusBadge(p.status)}" style="font-size:10px;padding:1px 6px">${p.status}</span></div>
                 </div>
                 <span class="badge ${H.statusBadge(p.priority)}">${p.priority}</span>
               </div>
@@ -254,7 +254,7 @@ function renderDashboard() {
                 <div style="font-size:12px;color:var(--text-2);font-family:var(--font-mono)">${p.completion}%</div>
               </div>
             </div>
-          `).join('') || '<div class="empty-state"><p>No active projects</p></div>'}
+          `).join('') || '<div class="empty-state"><p>No projects yet</p></div>'}
         </div>
       </div>
 
@@ -808,17 +808,15 @@ function renderProjectCard(p, data) {
   const manager = H.getUserById(p.managerId);
   const tasks = data.tasks.filter(t => t.projectId === p.id);
   const isSA = currentUser.role === 'super_admin';
-  const canEdit = Auth.can(currentUser, 'create_project');
   return `
     <div class="card" style="cursor:pointer" onclick="showProjectDetail('${p.id}')">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;">
-        <div style="flex:1;min-width:0;">
-          <div style="font-size:10px;font-family:var(--font-mono);color:var(--text-3);margin-bottom:3px;letter-spacing:.5px">${p.code}</div>
-          <div style="font-size:15px;font-weight:700;font-family:var(--font-head);line-height:1.3">${p.name}</div>
+        <div>
+          <div style="font-size:10px;font-family:var(--font-mono);color:var(--text-3);margin-bottom:4px">${p.code}</div>
+          <div style="font-size:15px;font-weight:700;font-family:var(--font-head)">${p.name}</div>
         </div>
-        <div style="display:flex;align-items:center;gap:6px;margin-left:10px;flex-shrink:0">
+        <div style="display:flex;align-items:center;gap:6px">
           <span class="badge ${H.statusBadge(p.status)}">${p.status}</span>
-          ${canEdit ? `<button class="btn btn-ghost btn-sm btn-icon" onclick="event.stopPropagation();openEditProjectModal('${p.id}')" title="Edit project" style="font-size:13px">✏️</button>` : ''}
           ${isSA ? `<button class="btn btn-danger btn-sm btn-icon" onclick="event.stopPropagation();deleteProject('${p.id}')" title="Delete project" style="font-size:13px">🗑</button>` : ''}
         </div>
       </div>
@@ -856,92 +854,6 @@ function deleteProject(projId) {
   });
   H.notify('Project deleted', 'success');
   renderProjects();
-}
-
-function openEditProjectModal(projId) {
-  const data = Store.get();
-  const p = data.projects.find(x => x.id === projId);
-  if (!p) return;
-  const managers = data.users.filter(u => (u.role === 'manager' || u.role === 'super_admin') && u.active);
-  const employees = data.users.filter(u => u.active);
-
-  document.getElementById('modal-title').textContent = `✏️ Edit Project — ${p.code}`;
-  document.getElementById('modal-confirm').textContent = '✓ Save Changes';
-  document.getElementById('modal-body').innerHTML = `
-    <div class="form-row cols-2">
-      <div class="form-field"><label>Project Name *</label><input id="ep-name" value="${p.name}"></div>
-      <div class="form-field"><label>Project Code *</label><input id="ep-code" value="${p.code}"></div>
-    </div>
-    <div class="form-row">
-      <div class="form-field"><label>Description</label><textarea id="ep-desc" rows="3">${p.description||''}</textarea></div>
-    </div>
-    <div class="form-row cols-2">
-      <div class="form-field"><label>Status</label>
-        <select id="ep-status">
-          ${['planning','active','on_hold','completed'].map(s=>`<option value="${s}" ${p.status===s?'selected':''}>${s.replace('_',' ')}</option>`).join('')}
-        </select>
-      </div>
-      <div class="form-field"><label>Priority</label>
-        <select id="ep-priority">
-          ${['low','medium','high'].map(s=>`<option value="${s}" ${p.priority===s?'selected':''}>${s}</option>`).join('')}
-        </select>
-      </div>
-    </div>
-    <div class="form-row cols-2">
-      <div class="form-field"><label>Project Manager *</label>
-        <select id="ep-manager">
-          <option value="">Select manager...</option>
-          ${managers.map(u=>`<option value="${u.id}" ${p.managerId===u.id?'selected':''}>${u.name} — ${u.position}</option>`).join('')}
-        </select>
-      </div>
-      <div class="form-field"><label>Completion %</label>
-        <input type="number" id="ep-completion" min="0" max="100" value="${p.completion||0}">
-      </div>
-    </div>
-    <div class="form-row cols-2">
-      <div class="form-field"><label>Start Date</label><input type="date" id="ep-start" value="${p.startDate||''}"></div>
-      <div class="form-field"><label>End Date *</label><input type="date" id="ep-end" value="${p.endDate||''}"></div>
-    </div>
-    <div class="form-row">
-      <div class="form-field"><label>Team Members</label>
-        <div style="border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-base);max-height:180px;overflow-y:auto;padding:10px 12px;">
-          ${employees.map(u => `
-            <label style="display:flex;align-items:center;gap:10px;padding:5px 4px;cursor:pointer;border-radius:4px;" onmouseover="this.style.background='var(--bg-hover)'" onmouseout="this.style.background='transparent'">
-              <input type="checkbox" value="${u.id}" class="ep-member-cb" ${(p.teamIds||[]).includes(u.id)?'checked':''} style="width:14px;height:14px;cursor:pointer">
-              <div class="avatar" style="width:24px;height:24px;font-size:9px;flex-shrink:0">${u.avatar}</div>
-              <div style="flex:1"><div style="font-size:13px;font-weight:500">${u.name}</div><div style="font-size:10px;color:var(--text-3)">${u.position}</div></div>
-              <span class="badge ${u.role==='super_admin'?'badge-info':u.role==='manager'?'badge-success':'badge-muted'}" style="font-size:10px">${u.role.replace('_',' ')}</span>
-            </label>
-          `).join('')}
-        </div>
-      </div>
-    </div>
-  `;
-  document.getElementById('modal-confirm').onclick = () => {
-    const name = document.getElementById('ep-name').value.trim();
-    const code = document.getElementById('ep-code').value.trim();
-    const manager = document.getElementById('ep-manager').value;
-    const end = document.getElementById('ep-end').value;
-    if (!name||!code||!manager||!end) { H.notify('Fill required fields','error'); return; }
-    const teamIds = Array.from(document.querySelectorAll('.ep-member-cb:checked')).map(cb=>cb.value);
-    Store.set(data => {
-      const proj = data.projects.find(x=>x.id===projId);
-      if (proj) {
-        proj.name=name; proj.code=code; proj.description=document.getElementById('ep-desc').value;
-        proj.status=document.getElementById('ep-status').value;
-        proj.priority=document.getElementById('ep-priority').value;
-        proj.managerId=manager; proj.endDate=end;
-        proj.startDate=document.getElementById('ep-start').value;
-        proj.completion=Math.min(100,Math.max(0,parseInt(document.getElementById('ep-completion').value)||0));
-        proj.teamIds=teamIds;
-      }
-      return data;
-    });
-    closeModal();
-    H.notify(`Project "${name}" updated!`, 'success');
-    renderProjects();
-  };
-  openModal();
 }
 
 // ═══════════════════════════════════════════════
@@ -1162,7 +1074,7 @@ function renderFiles() {
           <button class="btn btn-ghost" onclick="openFolderModal()">📁 New Folder</button>
         ` : ''}
         <div style="margin-left:auto;">
-          <span class="badge badge-muted">💾 Files stored in browser</span>
+          <span class="badge badge-muted">${Store.isConfigured() ? '☁️ Files stored in GitHub Gist' : '💾 Files stored locally (connect Gist for cloud)'}</span>
         </div>
       </div>
 
@@ -1216,8 +1128,8 @@ function renderFiles() {
                   ${f.shared ? '<span class="badge badge-info" style="margin-top:6px;font-size:10px">Shared</span>' : ''}
                   <div style="display:flex;gap:6px;margin-top:10px;">
                     ${f.url && f.url !== '#'
-                      ? f.url.startsWith('local:')
-                        ? `<button class="btn btn-ghost btn-sm" onclick="downloadLocalFile('${f.id}','${f.name}')" style="flex:1;text-align:center;">⬇ Download</button>`
+                      ? f.url.startsWith('gist:') || f.url.startsWith('local:')
+                        ? `<button class="btn btn-ghost btn-sm" onclick="downloadStoredFile('${f.id}','${f.name}','${f.url}')" style="flex:1;text-align:center;">⬇ Download</button>`
                         : `<a href="${f.url}" target="_blank" class="btn btn-ghost btn-sm" style="flex:1;text-align:center;text-decoration:none;">⬇ Download</a>`
                       : `<button class="btn btn-ghost btn-sm" style="flex:1;opacity:.4" disabled>⬇ No link</button>`
                     }
@@ -1263,8 +1175,8 @@ function openFolderView(folderId) {
                   <div style="font-size:11px;color:var(--text-3);">${f.size} · ${H.fmt(f.uploadedAt)} · by ${H.getUserById(f.uploadedBy)?.name || 'Unknown'}</div>
                 </div>
                 ${f.url && f.url !== '#'
-                  ? f.url.startsWith('local:')
-                    ? `<button class="btn btn-ghost btn-sm" onclick="downloadLocalFile('${f.id}','${f.name}')">⬇</button>`
+                  ? f.url.startsWith('gist:') || f.url.startsWith('local:')
+                    ? `<button class="btn btn-ghost btn-sm" onclick="downloadStoredFile('${f.id}','${f.name}','${f.url}')">⬇</button>`
                     : `<a href="${f.url}" target="_blank" class="btn btn-ghost btn-sm">⬇</a>`
                   : ''}
                 ${canDelete ? `<button class="btn btn-ghost btn-sm" onclick="deleteFile('${f.id}');closeModal();renderFiles();" style="color:var(--danger)">🗑</button>` : ''}
@@ -1277,11 +1189,61 @@ function openFolderView(folderId) {
   openModal();
 }
 
+// ── Download stored file (gist: or local:) ───────────────────
+async function downloadStoredFile(fileId, fileName, url) {
+  if (url.startsWith('local:')) {
+    const base64 = localStorage.getItem(`nexus_file_${fileId}`);
+    if (!base64) { H.notify('File data not found in local storage', 'error'); return; }
+    const a = document.createElement('a');
+    a.href = base64; a.download = fileName; a.click();
+  } else if (url.startsWith('gist:')) {
+    H.notify('Fetching from Gist…', 'info');
+    try {
+      const gistId = localStorage.getItem('nexus_gist_id') || '';
+      const token = localStorage.getItem('nexus_gist_token') || '';
+      const res = await fetch(`https://api.github.com/gists/${gistId}`, {
+        headers: {
+          'Accept': 'application/vnd.github+json',
+          'Authorization': `Bearer ${token}`,
+          'X-GitHub-Api-Version': '2022-11-28'
+        }
+      });
+      if (!res.ok) throw new Error('Failed to fetch from Gist');
+      const json = await res.json();
+      const base64 = json.files?.[`nexus_file_${fileId}.txt`]?.content;
+      if (!base64) throw new Error('File not found in Gist');
+      const a = document.createElement('a');
+      a.href = base64; a.download = fileName; a.click();
+    } catch(e) {
+      H.notify('Download failed: ' + e.message, 'error');
+    }
+  }
+}
+
 // ── Delete file ──────────────────────────────────
 function deleteFile(fileId) {
   if (!confirm('Delete this file? This cannot be undone.')) return;
+  const data = Store.get();
+  const f = data.files.find(x => x.id === fileId);
+  // Clean up storage
+  if (f?.url?.startsWith('local:')) {
+    localStorage.removeItem(`nexus_file_${fileId}`);
+  } else if (f?.url?.startsWith('gist:') && Store.isConfigured()) {
+    // Delete the file entry from Gist asynchronously
+    const gistId = localStorage.getItem('nexus_gist_id') || '';
+    const token = localStorage.getItem('nexus_gist_token') || '';
+    fetch(`https://api.github.com/gists/${gistId}`, {
+      method: 'PATCH',
+      headers: {
+        'Accept': 'application/vnd.github+json',
+        'Authorization': `Bearer ${token}`,
+        'X-GitHub-Api-Version': '2022-11-28',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ files: { [`nexus_file_${fileId}.txt`]: null } })
+    }).catch(e => console.warn('Gist file cleanup failed:', e));
+  }
   Store.set(data => { data.files = data.files.filter(f => f.id !== fileId); return data; });
-  localStorage.removeItem(`nexus_file_${fileId}`); // clean up base64 data
   H.notify('File deleted', 'info');
   renderFiles();
 }
@@ -1304,24 +1266,29 @@ function deleteFolder(folderId) {
 // ── Download locally stored file ──────────────────────────────
 function downloadLocalFile(fileId, fileName) {
   const base64 = localStorage.getItem(`nexus_file_${fileId}`);
-  if (!base64) { H.notify('File data not found in local storage', 'error'); return; }
+  if (!base64) { H.notify('File data not found', 'error'); return; }
   const a = document.createElement('a');
   a.href = base64;
   a.download = fileName;
   a.click();
 }
 
-// ── Upload file modal (local base64 storage) ──────────
+// ── Upload file modal (GitHub Gist cloud storage, local fallback) ──
 function openUploadModal(targetFolderId = null) {
   const data = Store.get();
+  const gistConfigured = Store.isConfigured();
   document.getElementById('modal-title').textContent = '⬆ Upload File';
-  document.getElementById('modal-confirm').style.display = 'none'; // hide default confirm; we use custom btn
+  document.getElementById('modal-confirm').style.display = 'none';
   document.getElementById('modal-body').innerHTML = `
     <div class="form-row">
       <div class="form-field">
         <label>Select File *</label>
         <input type="file" id="uf-file" style="padding:8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-base);color:var(--text-1);width:100%;">
-        <div style="font-size:11px;color:var(--text-3);margin-top:4px">Files are stored locally in your browser. Max ~10MB per file (localStorage limit).</div>
+        <div style="font-size:11px;color:var(--text-3);margin-top:4px">
+          ${gistConfigured
+            ? '☁️ Files stored in your GitHub Gist. Max ~5MB per file (Gist limit).'
+            : '💾 No GitHub Gist connected — files saved locally in browser. <a href="#" onclick="closeModal();navigate(\'settings\')" style="color:var(--accent)">Connect Gist →</a>'}
+        </div>
       </div>
     </div>
     <div class="form-row">
@@ -1343,7 +1310,7 @@ function openUploadModal(targetFolderId = null) {
       </div>
     </div>
     <div id="uf-progress" style="display:none;margin-top:12px;">
-      <div style="font-size:12px;color:var(--warn);margin-bottom:6px">⟳ Uploading to cloud…</div>
+      <div style="font-size:12px;color:var(--warn);margin-bottom:6px" id="uf-status-text">⟳ Uploading…</div>
       <div style="height:4px;background:var(--bg-hover);border-radius:4px;overflow:hidden;">
         <div id="uf-bar" style="height:100%;background:var(--accent);width:0%;transition:width .3s;border-radius:4px;"></div>
       </div>
@@ -1361,59 +1328,95 @@ async function submitFileUpload() {
   const fileInput = document.getElementById('uf-file');
   const file = fileInput?.files?.[0];
   if (!file) { H.notify('Please select a file', 'error'); return; }
+  if (file.size > 5 * 1024 * 1024) { H.notify('File too large — max 5MB', 'error'); return; }
 
   const btn = document.getElementById('uf-submit-btn');
   const progress = document.getElementById('uf-progress');
   const bar = document.getElementById('uf-bar');
   const result = document.getElementById('uf-result');
+  const statusText = document.getElementById('uf-status-text');
 
   btn.disabled = true;
-  btn.textContent = '⟳ Reading file…';
+  btn.textContent = '⟳ Reading…';
   progress.style.display = 'block';
 
-  // Animate bar
   let pct = 0;
-  const ticker = setInterval(() => { pct = Math.min(pct + 12, 85); bar.style.width = pct + '%'; }, 150);
+  const ticker = setInterval(() => { pct = Math.min(pct + 10, 80); bar.style.width = pct + '%'; }, 150);
 
   try {
-    // Store file as base64 in localStorage — works offline, no CORS issues
+    // Read file as base64 data URL
     const base64 = await new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = () => resolve(reader.result); // data:type;base64,xxx
+      reader.onload = () => resolve(reader.result);
       reader.onerror = () => reject(new Error('Failed to read file'));
       reader.readAsDataURL(file);
     });
 
-    clearInterval(ticker);
-    bar.style.width = '100%';
-
-    const fileId = H.uid();
     const ext = file.name.split('.').pop().toLowerCase();
     const sizeKB = file.size / 1024;
     const sizeStr = sizeKB > 1024 ? `${(sizeKB/1024).toFixed(1)} MB` : `${Math.round(sizeKB)} KB`;
+    const fileId = H.uid();
+    const folderId = document.getElementById('uf-folder').value || null;
+    const access = document.getElementById('uf-access').value;
 
-    // Save base64 data separately keyed by fileId (avoids bloating main store)
-    try { localStorage.setItem(`nexus_file_${fileId}`, base64); } catch(e) {
-      throw new Error('Storage quota exceeded — delete some files or use smaller files');
+    let storageUrl = `local:${fileId}`;
+
+    // Try GitHub Gist storage if configured
+    if (Store.isConfigured()) {
+      statusText.textContent = '☁️ Uploading to GitHub Gist…';
+      bar.style.width = '60%';
+      try {
+        const gistId = localStorage.getItem('nexus_gist_id') || '';
+        const token = localStorage.getItem('nexus_gist_token') || '';
+        // Store file in a separate gist file named by fileId
+        const res = await fetch(`https://api.github.com/gists/${gistId}`, {
+          method: 'PATCH',
+          headers: {
+            'Accept': 'application/vnd.github+json',
+            'Authorization': `Bearer ${token}`,
+            'X-GitHub-Api-Version': '2022-11-28',
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            files: { [`nexus_file_${fileId}.txt`]: { content: base64 } }
+          })
+        });
+        if (res.ok) {
+          storageUrl = `gist:${fileId}`;
+          bar.style.width = '90%';
+        } else {
+          throw new Error('Gist write failed');
+        }
+      } catch(e) {
+        // Gist upload failed — fall back to local
+        console.warn('Gist file upload failed, falling back to local:', e.message);
+        localStorage.setItem(`nexus_file_${fileId}`, base64);
+        storageUrl = `local:${fileId}`;
+      }
+    } else {
+      // No Gist — save locally
+      try { localStorage.setItem(`nexus_file_${fileId}`, base64); } catch(e) {
+        throw new Error('Browser storage full — connect GitHub Gist or delete old files');
+      }
     }
+
+    clearInterval(ticker);
+    bar.style.width = '100%';
 
     Store.set(data => {
       data.files.push({
-        id: fileId,
-        name: file.name,
-        type: ext,
-        size: sizeStr,
-        folderId: document.getElementById('uf-folder').value || null,
-        uploadedBy: currentUser.id,
+        id: fileId, name: file.name, type: ext, size: sizeStr,
+        folderId, uploadedBy: currentUser.id,
         uploadedAt: new Date().toISOString().split('T')[0],
-        permissions: [document.getElementById('uf-access').value === 'all' ? 'all' : currentUser.id],
-        url: `local:${fileId}`, // sentinel for local storage
-        shared: document.getElementById('uf-access').value === 'all'
+        permissions: [access === 'all' ? 'all' : currentUser.id],
+        url: storageUrl,
+        shared: access === 'all'
       });
       return data;
     });
 
-    result.innerHTML = `<span style="color:var(--success)">✓ Saved locally! File is available for download.</span>`;
+    const isCloud = storageUrl.startsWith('gist:');
+    result.innerHTML = `<span style="color:var(--success)">✓ ${isCloud ? '☁️ Saved to GitHub Gist' : '💾 Saved locally'}!</span>`;
     btn.textContent = '✓ Done';
     H.notify(`${file.name} uploaded successfully!`, 'success');
     setTimeout(() => { closeModal(); renderFiles(); }, 1200);
@@ -1599,14 +1602,11 @@ function renderTaskCreate() {
   if (!Auth.can(currentUser, 'create_task')) { H.notify('Access denied','error'); navigate('my-tasks'); return; }
   const data = Store.get();
   const container = document.getElementById('taskcreate-content');
-  // All active users (employees + managers) can be assigned tasks
+  // All active non-super-admin users can be assigned tasks (fallback pool)
   const allAssignable = data.users.filter(u => u.active && u.role !== 'super_admin');
 
-  function buildAssigneeOptions(filterTeamIds = null) {
-    const pool = filterTeamIds
-      ? allAssignable.filter(u => filterTeamIds.includes(u.id))
-      : allAssignable;
-    if (!pool.length) return '<option disabled>No active members found</option>';
+  function buildAssigneeOptions(pool) {
+    if (!pool.length) return '<option disabled>No members found</option>';
     return pool.map(u=>`<option value="${u.id}">${u.name} — ${u.position} (${u.department})</option>`).join('');
   }
 
@@ -1622,7 +1622,7 @@ function renderTaskCreate() {
             <label>Project</label>
             <select id="tc-project" onchange="onTaskProjectChange()">
               <option value="">— No Project —</option>
-              ${data.projects.map(p=>`<option value="${p.id}" data-team='${JSON.stringify(p.teamIds||[])}'>${p.code} — ${p.name}</option>`).join('')}
+              ${data.projects.map(p=>`<option value="${p.id}">${p.code} — ${p.name}</option>`).join('')}
             </select>
           </div>
         </div>
@@ -1637,7 +1637,7 @@ function renderTaskCreate() {
             <label>Assign To * <span id="tc-assign-hint" style="font-size:10px;color:var(--text-3);font-weight:400">(all active members)</span></label>
             <select id="tc-assignee">
               <option value="">Select member...</option>
-              ${buildAssigneeOptions()}
+              ${buildAssigneeOptions(allAssignable)}
             </select>
           </div>
           <div class="form-field">
@@ -1692,28 +1692,36 @@ function renderTaskCreate() {
 function onTaskProjectChange() {
   const data = Store.get();
   const sel = document.getElementById('tc-project');
-  const opt = sel.options[sel.selectedIndex];
   const assignSel = document.getElementById('tc-assignee');
   const hint = document.getElementById('tc-assign-hint');
   const allAssignable = data.users.filter(u => u.active && u.role !== 'super_admin');
 
   let pool = allAssignable;
+  let hintText = '(all active members)';
+
   if (sel.value) {
     const project = data.projects.find(p => p.id === sel.value);
     if (project && project.teamIds && project.teamIds.length > 0) {
-      pool = allAssignable.filter(u => project.teamIds.includes(u.id));
-      hint.textContent = `(${pool.length} project member${pool.length!==1?'s':''})`;
+      // Filter to only the project's assigned team members
+      const teamPool = allAssignable.filter(u => project.teamIds.includes(u.id));
+      if (teamPool.length > 0) {
+        pool = teamPool;
+        hintText = `(${pool.length} project member${pool.length!==1?'s':''})`;
+      } else {
+        // teamIds exist but users may have been deleted — fall back
+        hintText = '(team members not found — showing all)';
+      }
     } else {
-      hint.textContent = '(no team assigned — showing all)';
+      // Project has no team assigned yet — show everyone
+      hintText = '(no team assigned to project — showing all)';
     }
-  } else {
-    hint.textContent = '(all active members)';
   }
 
+  hint.textContent = hintText;
   assignSel.innerHTML = '<option value="">Select member...</option>' +
     (pool.length
       ? pool.map(u=>`<option value="${u.id}">${u.name} — ${u.position} (${u.department})</option>`).join('')
-      : '<option disabled>No members found</option>');
+      : '<option disabled>No members available</option>');
 }
 
 // ── Subtask row management ──────────────────────
@@ -2443,9 +2451,8 @@ function showProjectDetail(projId) {
   if (!p) return;
   const manager = H.getUserById(p.managerId);
   const tasks = data.tasks.filter(t=>t.projectId===projId);
-  const team = (p.teamIds||[]).map(id=>H.getUserById(id)).filter(Boolean);
-  const canEdit = Auth.can(currentUser, 'create_project');
-  document.getElementById('modal-title').textContent = `${p.code} — ${p.name}`;
+  const team = p.teamIds.map(id=>H.getUserById(id)).filter(Boolean);
+  document.getElementById('modal-title').textContent = p.name;
   document.getElementById('modal-confirm').style.display = 'none';
   const body = document.getElementById('modal-body');
   body.innerHTML = `
@@ -2453,7 +2460,6 @@ function showProjectDetail(projId) {
       <span class="badge ${H.statusBadge(p.status)}">${p.status}</span>
       <span class="badge ${H.statusBadge(p.priority)}">${H.priorityIcon(p.priority)} ${p.priority}</span>
       <span class="badge badge-muted">📅 ${H.fmt(p.startDate)} → ${H.fmt(p.endDate)}</span>
-      ${canEdit ? `<button class="btn btn-ghost btn-sm" style="margin-left:auto;font-size:12px" onclick="closeModal();openEditProjectModal('${p.id}')">✏️ Edit Project</button>` : ''}
     </div>
     <p style="color:var(--text-2);font-size:13px;line-height:1.7;margin-bottom:16px">${p.description}</p>
     <div style="margin-bottom:16px">
@@ -2466,21 +2472,18 @@ function showProjectDetail(projId) {
       <div>
         <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--text-3);margin-bottom:8px">Manager</div>
         <div class="user-pill">
-          <div class="pill-avatar">${manager?.avatar||'?'}</div>
-          ${manager?.name||'—'}
+          <div class="pill-avatar">${manager?.avatar}</div>
+          ${manager?.name}
         </div>
       </div>
       <div>
         <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--text-3);margin-bottom:8px">Team (${team.length})</div>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
-          ${team.length
-            ? team.map(u=>`<div class="user-pill"><div class="pill-avatar">${u.avatar}</div>${u.name.split(' ')[0]}</div>`).join('')
-            : '<span style="font-size:12px;color:var(--text-3)">No team members assigned</span>'
-          }
+          ${team.map(u=>`<div class="user-pill"><div class="pill-avatar">${u.avatar}</div>${u.name.split(' ')[0]}</div>`).join('')}
         </div>
       </div>
     </div>
-    ${(p.objectives||[]).length ? `
+    ${p.objectives.length ? `
       <div style="margin-bottom:16px">
         <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--text-3);margin-bottom:8px">Objectives</div>
         ${p.objectives.map(o=>`<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:13px;color:var(--text-2)">▸ ${o}</div>`).join('')}
@@ -2496,7 +2499,7 @@ function showProjectDetail(projId) {
           <div class="user-pill"><div class="pill-avatar">${assignee?.avatar||'?'}</div>${assignee?.name?.split(' ')[0]||'?'}</div>
           <span class="badge ${H.statusBadge(t.status)}">${t.status.replace('_',' ')}</span>
         </div>`;
-      }).join('') || '<div style="color:var(--text-3);font-size:13px;padding:12px 0">No tasks yet</div>'}
+      }).join('') || '<div style="color:var(--text-3);font-size:13px">No tasks yet</div>'}
     </div>
   `;
   document.getElementById('modal-confirm').style.display = '';
@@ -2521,7 +2524,7 @@ function showTaskDetail(taskId) {
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
       <span class="badge ${H.statusBadge(t.status)}">${t.status.replace('_',' ')}</span>
       <span class="badge ${H.statusBadge(t.priority)}">${H.priorityIcon(t.priority)} ${t.priority}</span>
-      ${project?`<span class="badge badge-muted">📁 ${project.code} — ${project.name}</span>`:''}
+      ${project?`<span class="badge badge-muted">📁 ${project.name}</span>`:''}
     </div>
     <p style="color:var(--text-2);font-size:13px;line-height:1.7;margin-bottom:16px">${t.description||'No description provided.'}</p>
     <div class="grid-2" style="gap:16px;margin-bottom:16px">
