@@ -24,7 +24,7 @@
 //  └────────────────────────────────────────────────────────────┘
 
 const GIST_ID    = '915bc7aef3d7130aa2044ba311089dc3';   // Leave blank — users configure via the cloud setup modal
-const GIST_TOKEN = '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';   // Leave blank — users configure via the cloud setup modal
+const GIST_TOKEN = '';   // Leave blank — users configure via the cloud setup modal
 const GIST_FILE  = 'nexus.json';
 
 // Read from localStorage if not hardcoded above — lets users connect via the UI
