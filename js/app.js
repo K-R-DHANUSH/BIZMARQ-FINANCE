@@ -11,7 +11,16 @@ function applyTheme(theme) {
   if (btn) btn.textContent = theme === 'dark' ? '☀️' : '🌙';
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  // Show loading state
+  document.body.style.opacity = '0';
+  try {
+    await Store.init();
+  } catch(e) {
+    console.warn('Store init error, continuing with local data', e);
+  }
+  document.body.style.transition = 'opacity .3s';
+  document.body.style.opacity = '1';
   currentUser = Auth.requireAuth();
   if (!currentUser) return;
   initApp();
@@ -30,6 +39,98 @@ function renderHeader() {
   document.getElementById('header-avatar').textContent = currentUser.avatar;
   document.getElementById('notif-count').style.display =
     getUnreadNotifs() > 0 ? 'block' : 'none';
+  // Sync indicator state
+  if (!Store.isBinConfigured()) {
+    Store.showSyncIndicator('local');
+    // Show setup banner once for super admins
+    if (currentUser.role === 'super_admin') showSetupBanner();
+  } else {
+    Store.showSyncIndicator('ok');
+  }
+}
+
+function showSetupBanner() {
+  if (sessionStorage.getItem('banner_dismissed')) return;
+  const existing = document.getElementById('setup-banner');
+  if (existing) return;
+  const banner = document.createElement('div');
+  banner.id = 'setup-banner';
+  banner.style.cssText = `
+    position:fixed;bottom:72px;right:24px;z-index:888;
+    background:var(--bg-card);border:1px solid var(--border-2);
+    border-left:4px solid var(--accent);border-radius:var(--radius-lg);
+    padding:16px 18px;max-width:360px;box-shadow:var(--shadow-lg);
+    animation:fadeUp .3s ease;
+  `;
+  banner.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:8px">
+      <div style="font-size:13px;font-weight:700;color:var(--text-1)">☁️ Connect Cloud Storage</div>
+      <button onclick="document.getElementById('setup-banner').remove();sessionStorage.setItem('banner_dismissed','1')" style="color:var(--text-3);font-size:16px;line-height:1;cursor:pointer">✕</button>
+    </div>
+    <div style="font-size:12px;color:var(--text-2);line-height:1.6;margin-bottom:12px">
+      Data is currently saved in <strong>browser localStorage only</strong>.<br>
+      Connect JSONBin to sync across devices & users.
+    </div>
+    <button class="btn btn-primary btn-sm" onclick="openJsonBinSetupModal()">⚙️ Set Up JSONBin →</button>
+  `;
+  document.body.appendChild(banner);
+}
+
+function openJsonBinSetupModal() {
+  document.getElementById('setup-banner')?.remove();
+  document.getElementById('modal-title').textContent = '☁️ Connect JSONBin Cloud Storage';
+  document.getElementById('modal-confirm').textContent = '✓ Save & Test Connection';
+  document.getElementById('modal-body').innerHTML = `
+    <div style="background:var(--bg-base);border-radius:var(--radius);padding:16px;margin-bottom:20px;border:1px solid var(--border)">
+      <div style="font-size:13px;font-weight:700;margin-bottom:10px">📋 Setup Guide (2 minutes)</div>
+      <ol style="font-size:12px;color:var(--text-2);line-height:2.2;padding-left:18px">
+        <li>Go to <a href="https://jsonbin.io" target="_blank" style="color:var(--accent)">jsonbin.io</a> → Sign up free</li>
+        <li>Click <strong>CREATE BIN</strong> → paste <code style="background:var(--bg-hover);padding:1px 5px;border-radius:3px">{}</code> → Save</li>
+        <li>Copy the <strong>BIN ID</strong> from the URL bar</li>
+        <li>Go to <strong>API Keys</strong> → copy your <strong>Master Key</strong></li>
+        <li>Paste both below and click Save</li>
+      </ol>
+    </div>
+    <div class="form-row">
+      <div class="form-field">
+        <label>JSONBin BIN ID</label>
+        <input id="jb-bin" placeholder="e.g. 664abc123def456789" style="font-family:var(--font-mono)">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-field">
+        <label>Master API Key</label>
+        <input id="jb-key" type="password" placeholder="$2a$10$..." style="font-family:var(--font-mono)">
+      </div>
+    </div>
+    <div id="jb-status" style="font-size:12px;margin-top:8px;min-height:20px"></div>
+  `;
+  document.getElementById('modal-confirm').onclick = testAndSaveJsonBin;
+  openModal();
+}
+
+async function testAndSaveJsonBin() {
+  const binId = document.getElementById('jb-bin').value.trim();
+  const apiKey = document.getElementById('jb-key').value.trim();
+  const status = document.getElementById('jb-status');
+  if (!binId || !apiKey) { H.notify('Both fields are required', 'error'); return; }
+  status.innerHTML = '<span style="color:var(--warn)">⟳ Testing connection…</span>';
+  try {
+    // Test read
+    const res = await fetch(`https://api.jsonbin.io/v3/b/${binId}/latest`, {
+      headers: { 'X-Master-Key': apiKey }
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    // Save credentials to localStorage (not sensitive — client-side app)
+    localStorage.setItem('nexus_bin_id', binId);
+    localStorage.setItem('nexus_bin_key', apiKey);
+    // Reload page so store.js picks up the new config
+    status.innerHTML = '<span style="color:var(--success)">✓ Connection successful! Reloading…</span>';
+    H.notify('JSONBin connected! Syncing data…', 'success');
+    setTimeout(() => window.location.reload(), 1200);
+  } catch(err) {
+    status.innerHTML = `<span style="color:var(--danger)">✕ Connection failed: ${err.message}. Check your BIN ID and API Key.</span>`;
+  }
 }
 
 function getUnreadNotifs() {
@@ -339,14 +440,19 @@ function renderOrganization() {
 }
 
 function buildOrgHierarchy(data) {
-  // Top-level: show classic reporting tree
-  const ceo = data.users.find(u => u.managerId === null && u.active);
-  if (!ceo) return '<div class="empty-state"><div class="empty-icon">◫</div><p>No hierarchy defined</p></div>';
+  // All users with no manager = top level (can be multiple co-founders/C-suite)
+  const topLevel = data.users.filter(u => u.managerId === null && u.active);
+  if (!topLevel.length) return '<div class="empty-state"><div class="empty-icon">◫</div><p>No hierarchy defined</p></div>';
 
   return `
     <div style="overflow-x:auto;padding:10px 0;">
       <div style="display:flex;flex-direction:column;align-items:center;">
-        ${renderOrgNode(ceo, data.users)}
+        ${topLevel.length === 1
+          ? renderOrgNode(topLevel[0], data.users)
+          : `<div style="display:flex;gap:24px;justify-content:center;flex-wrap:wrap;align-items:flex-start;">
+              ${topLevel.map(u => renderOrgNode(u, data.users)).join('')}
+            </div>`
+        }
       </div>
     </div>
 
