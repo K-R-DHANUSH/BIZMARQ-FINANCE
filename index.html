@@ -82,6 +82,10 @@
 
   <script src="js/store.js"></script>
   <script>
+    // Apply saved theme immediately
+    const _t = localStorage.getItem('nexus_theme') || 'light';
+    document.documentElement.setAttribute('data-theme', _t);
+
     Store.get();
 
     function toggleHint(btn) {
