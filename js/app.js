@@ -1064,33 +1064,39 @@ function renderFiles() {
     f.permissions.includes('all') || f.permissions.includes(currentUser.id) || currentUser.role === 'super_admin'
   );
 
-  const fileIcons = { pdf: '📄', xlsx: '📊', docx: '📝', png: '🖼️', jpg: '🖼️', mp4: '🎬', zip: '📦' };
+  const fileIcons = { pdf:'📄', xlsx:'📊', docx:'📝', png:'🖼️', jpg:'🖼️', jpeg:'🖼️', mp4:'🎬', zip:'📦', csv:'📊', pptx:'📑', txt:'📃' };
 
   container.innerHTML = `
     <div class="fade-up">
-      <div style="display:flex;gap:12px;margin-bottom:24px;flex-wrap:wrap;">
+      <div style="display:flex;gap:12px;margin-bottom:24px;flex-wrap:wrap;align-items:center;">
         ${canManage ? `
-          <button class="btn btn-primary" onclick="openUploadModal()">⬆ Upload File</button>
+          <button class="btn btn-primary" onclick="openUploadModal(null)">⬆ Upload File</button>
           <button class="btn btn-ghost" onclick="openFolderModal()">📁 New Folder</button>
         ` : ''}
-        <div style="margin-left:auto;display:flex;gap:6px;">
-          <span class="badge badge-muted">☁️ Powered by free cloud</span>
+        <div style="margin-left:auto;">
+          <span class="badge badge-muted">☁️ Files hosted on Catbox.moe</span>
         </div>
       </div>
 
-      <div style="margin-bottom:24px;">
+      <!-- Folders -->
+      <div style="margin-bottom:28px;">
         <div style="font-size:13px;font-weight:600;color:var(--text-2);margin-bottom:14px;text-transform:uppercase;letter-spacing:.5px">Folders</div>
         <div class="grid-3">
           ${accessibleFolders.map(folder => {
-            const fc = data.files.filter(f=>f.folderId===folder.id);
+            const fc = data.files.filter(f => f.folderId === folder.id);
             return `
-              <div class="folder-card">
+              <div class="folder-card" style="cursor:pointer;position:relative;" onclick="openFolderView('${folder.id}')">
                 <span style="font-size:28px">📁</span>
                 <div style="flex:1">
                   <div style="font-size:13px;font-weight:600">${folder.name}</div>
-                  <div style="font-size:11px;color:var(--text-3);margin-top:2px">${fc.length} files</div>
+                  <div style="font-size:11px;color:var(--text-3);margin-top:2px">${fc.length} file${fc.length!==1?'s':''}</div>
                 </div>
-                ${canManage ? `<button class="btn btn-ghost btn-sm btn-icon" onclick="event.stopPropagation()" title="Options">⋮</button>` : ''}
+                ${canManage ? `
+                  <div style="display:flex;gap:4px;">
+                    <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();openUploadModal('${folder.id}')" title="Upload to folder">⬆</button>
+                    <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();deleteFolder('${folder.id}')" title="Delete folder" style="color:var(--danger)">🗑</button>
+                  </div>
+                ` : ''}
               </div>
             `;
           }).join('')}
@@ -1103,26 +1109,215 @@ function renderFiles() {
         </div>
       </div>
 
+      <!-- All Files -->
       <div>
-        <div style="font-size:13px;font-weight:600;color:var(--text-2);margin-bottom:14px;text-transform:uppercase;letter-spacing:.5px">Files</div>
-        <div class="file-grid">
-          ${accessibleFiles.map(f => {
-            const icon = fileIcons[f.type] || '📄';
-            return `
-              <div class="file-card">
-                <div class="file-icon">${icon}</div>
-                <div class="file-name">${f.name}</div>
-                <div class="file-meta">${f.size}</div>
-                <div class="file-meta">${H.fmt(f.uploadedAt)}</div>
-                ${f.shared ? '<span class="badge badge-info" style="margin-top:8px;font-size:10px">Shared</span>' : ''}
-                <button class="btn btn-ghost btn-sm" style="margin-top:10px;width:100%">⬇ Download</button>
-              </div>
-            `;
-          }).join('')}
-        </div>
+        <div style="font-size:13px;font-weight:600;color:var(--text-2);margin-bottom:14px;text-transform:uppercase;letter-spacing:.5px">All Files</div>
+        ${accessibleFiles.length === 0
+          ? `<div style="color:var(--text-3);font-size:13px;padding:20px 0;">No files uploaded yet.</div>`
+          : `<div class="file-grid">
+            ${accessibleFiles.map(f => {
+              const ext = f.name.split('.').pop().toLowerCase();
+              const icon = fileIcons[ext] || '📄';
+              const canDelete = canManage || f.uploadedBy === currentUser.id;
+              return `
+                <div class="file-card" style="position:relative;">
+                  <div class="file-icon">${icon}</div>
+                  <div class="file-name" title="${f.name}">${f.name}</div>
+                  <div class="file-meta">${f.size}</div>
+                  <div class="file-meta">${H.fmt(f.uploadedAt)}</div>
+                  ${f.shared ? '<span class="badge badge-info" style="margin-top:6px;font-size:10px">Shared</span>' : ''}
+                  <div style="display:flex;gap:6px;margin-top:10px;">
+                    ${f.url && f.url !== '#'
+                      ? `<a href="${f.url}" target="_blank" class="btn btn-ghost btn-sm" style="flex:1;text-align:center;text-decoration:none;">⬇ Download</a>`
+                      : `<button class="btn btn-ghost btn-sm" style="flex:1;opacity:.4" disabled>⬇ No link</button>`
+                    }
+                    ${canDelete ? `<button class="btn btn-ghost btn-sm" onclick="deleteFile('${f.id}')" title="Delete file" style="color:var(--danger);padding:0 8px;">🗑</button>` : ''}
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>`
+        }
       </div>
     </div>
   `;
+}
+
+// ── Folder view (click on folder → see its files) ──────────
+function openFolderView(folderId) {
+  const data = Store.get();
+  const folder = data.folders.find(f => f.id === folderId);
+  const files = data.files.filter(f => f.folderId === folderId);
+  const canManage = Auth.can(currentUser, 'manage_files');
+  const fileIcons = { pdf:'📄', xlsx:'📊', docx:'📝', png:'🖼️', jpg:'🖼️', jpeg:'🖼️', mp4:'🎬', zip:'📦', csv:'📊', pptx:'📑', txt:'📃' };
+
+  document.getElementById('modal-title').textContent = `📁 ${folder?.name || 'Folder'}`;
+  document.getElementById('modal-confirm').style.display = 'none';
+  document.getElementById('modal-body').innerHTML = `
+    <div style="margin-bottom:14px;display:flex;gap:8px;flex-wrap:wrap;">
+      ${canManage ? `<button class="btn btn-primary btn-sm" onclick="closeModal();openUploadModal('${folderId}')">⬆ Upload to this folder</button>` : ''}
+      <span style="font-size:12px;color:var(--text-3);align-self:center;">${files.length} file${files.length!==1?'s':''}</span>
+    </div>
+    ${files.length === 0
+      ? `<div style="color:var(--text-3);font-size:13px;padding:20px 0;text-align:center;">No files in this folder yet.</div>`
+      : `<div style="display:flex;flex-direction:column;gap:10px;">
+          ${files.map(f => {
+            const ext = f.name.split('.').pop().toLowerCase();
+            const icon = fileIcons[ext] || '📄';
+            const canDelete = canManage || f.uploadedBy === currentUser.id;
+            return `
+              <div style="display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:var(--radius);background:var(--bg-base);border:1px solid var(--border);">
+                <span style="font-size:22px">${icon}</span>
+                <div style="flex:1;min-width:0;">
+                  <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${f.name}</div>
+                  <div style="font-size:11px;color:var(--text-3);">${f.size} · ${H.fmt(f.uploadedAt)} · by ${H.getUserById(f.uploadedBy)?.name || 'Unknown'}</div>
+                </div>
+                ${f.url && f.url !== '#' ? `<a href="${f.url}" target="_blank" class="btn btn-ghost btn-sm">⬇</a>` : ''}
+                ${canDelete ? `<button class="btn btn-ghost btn-sm" onclick="deleteFile('${f.id}');closeModal();renderFiles();" style="color:var(--danger)">🗑</button>` : ''}
+              </div>
+            `;
+          }).join('')}
+        </div>`
+    }
+  `;
+  openModal();
+}
+
+// ── Delete file ──────────────────────────────────
+function deleteFile(fileId) {
+  if (!confirm('Delete this file? This cannot be undone.')) return;
+  Store.set(data => { data.files = data.files.filter(f => f.id !== fileId); return data; });
+  H.notify('File deleted', 'info');
+  renderFiles();
+}
+
+// ── Delete folder ────────────────────────────────
+function deleteFolder(folderId) {
+  const data = Store.get();
+  const fileCount = data.files.filter(f => f.folderId === folderId).length;
+  if (fileCount > 0 && !confirm(`This folder has ${fileCount} file(s). Delete folder and all its files?`)) return;
+  if (fileCount === 0 && !confirm('Delete this empty folder?')) return;
+  Store.set(data => {
+    data.files = data.files.filter(f => f.folderId !== folderId);
+    data.folders = data.folders.filter(f => f.id !== folderId);
+    return data;
+  });
+  H.notify('Folder deleted', 'info');
+  renderFiles();
+}
+
+// ── Upload file modal (real upload to Catbox.moe) ──────────
+function openUploadModal(targetFolderId = null) {
+  const data = Store.get();
+  document.getElementById('modal-title').textContent = '⬆ Upload File';
+  document.getElementById('modal-confirm').style.display = 'none'; // hide default confirm; we use custom btn
+  document.getElementById('modal-body').innerHTML = `
+    <div class="form-row">
+      <div class="form-field">
+        <label>Select File *</label>
+        <input type="file" id="uf-file" style="padding:8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-base);color:var(--text-1);width:100%;">
+        <div style="font-size:11px;color:var(--text-3);margin-top:4px">Files are uploaded to Catbox.moe (free, permanent hosting). Max ~200MB.</div>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-field">
+        <label>Folder</label>
+        <select id="uf-folder">
+          <option value="">— No folder —</option>
+          ${data.folders.map(f=>`<option value="${f.id}" ${f.id===targetFolderId?'selected':''}>${f.name}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-field">
+        <label>Access</label>
+        <select id="uf-access">
+          <option value="all">Everyone</option>
+          <option value="restricted">Restricted (you only)</option>
+        </select>
+      </div>
+    </div>
+    <div id="uf-progress" style="display:none;margin-top:12px;">
+      <div style="font-size:12px;color:var(--warn);margin-bottom:6px">⟳ Uploading to cloud…</div>
+      <div style="height:4px;background:var(--bg-hover);border-radius:4px;overflow:hidden;">
+        <div id="uf-bar" style="height:100%;background:var(--accent);width:0%;transition:width .3s;border-radius:4px;"></div>
+      </div>
+    </div>
+    <div id="uf-result" style="font-size:12px;margin-top:8px;min-height:16px;"></div>
+    <div style="display:flex;gap:10px;margin-top:16px;">
+      <button class="btn btn-primary" id="uf-submit-btn" onclick="submitFileUpload()">⬆ Upload</button>
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+    </div>
+  `;
+  openModal();
+}
+
+async function submitFileUpload() {
+  const fileInput = document.getElementById('uf-file');
+  const file = fileInput?.files?.[0];
+  if (!file) { H.notify('Please select a file', 'error'); return; }
+
+  const btn = document.getElementById('uf-submit-btn');
+  const progress = document.getElementById('uf-progress');
+  const bar = document.getElementById('uf-bar');
+  const result = document.getElementById('uf-result');
+
+  btn.disabled = true;
+  btn.textContent = '⟳ Uploading…';
+  progress.style.display = 'block';
+
+  // Animate bar
+  let pct = 0;
+  const ticker = setInterval(() => { pct = Math.min(pct + 8, 85); bar.style.width = pct + '%'; }, 200);
+
+  try {
+    // Upload to Catbox.moe — free, no account needed, permanent links
+    const form = new FormData();
+    form.append('reqtype', 'fileupload');
+    form.append('fileToUpload', file);
+
+    const res = await fetch('https://catbox.moe/user/api.php', { method: 'POST', body: form });
+    const url = await res.text();
+
+    clearInterval(ticker);
+    bar.style.width = '100%';
+
+    if (!url || !url.startsWith('https://')) throw new Error('Upload failed — invalid response from Catbox');
+
+    const ext = file.name.split('.').pop().toLowerCase();
+    const sizeKB = file.size / 1024;
+    const sizeStr = sizeKB > 1024 ? `${(sizeKB/1024).toFixed(1)} MB` : `${Math.round(sizeKB)} KB`;
+
+    Store.set(data => {
+      data.files.push({
+        id: H.uid(),
+        name: file.name,
+        type: ext,
+        size: sizeStr,
+        folderId: document.getElementById('uf-folder').value || null,
+        uploadedBy: currentUser.id,
+        uploadedAt: new Date().toISOString().split('T')[0],
+        permissions: [document.getElementById('uf-access').value === 'all' ? 'all' : currentUser.id],
+        url: url.trim(),
+        shared: document.getElementById('uf-access').value === 'all'
+      });
+      return data;
+    });
+
+    result.innerHTML = `<span style="color:var(--success)">✓ Uploaded! <a href="${url.trim()}" target="_blank" style="color:var(--accent)">View file →</a></span>`;
+    btn.textContent = '✓ Done';
+    H.notify(`${file.name} uploaded successfully!`, 'success');
+    setTimeout(() => { closeModal(); renderFiles(); }, 1200);
+
+  } catch (err) {
+    clearInterval(ticker);
+    bar.style.width = '0%';
+    progress.style.display = 'none';
+    btn.disabled = false;
+    btn.textContent = '⬆ Retry Upload';
+    result.innerHTML = `<span style="color:var(--danger)">✗ ${err.message}</span>`;
+    H.notify('Upload failed — check your connection', 'error');
+  }
 }
 
 // ═══════════════════════════════════════════════
@@ -1295,10 +1490,11 @@ function renderTaskCreate() {
   if (!Auth.can(currentUser, 'create_task')) { H.notify('Access denied','error'); navigate('my-tasks'); return; }
   const data = Store.get();
   const container = document.getElementById('taskcreate-content');
-  const employees = data.users.filter(u => u.role === 'employee' || u.role === 'manager');
+  // ✅ Only ACTIVE users (employees + managers)
+  const employees = data.users.filter(u => (u.role === 'employee' || u.role === 'manager') && u.active);
 
   container.innerHTML = `
-    <div class="fade-up" style="max-width:700px;">
+    <div class="fade-up" style="max-width:760px;">
       <div class="card">
         <div class="form-row cols-2">
           <div class="form-field">
@@ -1324,7 +1520,10 @@ function renderTaskCreate() {
             <label>Assign To *</label>
             <select id="tc-assignee">
               <option value="">Select employee...</option>
-              ${employees.map(u=>`<option value="${u.id}">${u.name} (${u.department})</option>`).join('')}
+              ${employees.length
+                ? employees.map(u=>`<option value="${u.id}">${u.name} — ${u.position} (${u.department})</option>`).join('')
+                : '<option disabled>No active employees found</option>'
+              }
             </select>
           </div>
           <div class="form-field">
@@ -1353,20 +1552,69 @@ function renderTaskCreate() {
             <input type="text" id="tc-tags" placeholder="design, frontend, backend...">
           </div>
         </div>
-        <div style="display:flex;gap:10px;margin-top:8px;">
-          <button class="btn btn-primary" onclick="submitTaskCreate()">✓ Create & Notify</button>
-          <button class="btn btn-ghost" onclick="navigate('my-tasks')">Cancel</button>
+      </div>
+
+      <!-- ── Subtasks ── -->
+      <div class="card" style="margin-top:16px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+          <div>
+            <div style="font-size:14px;font-weight:700">Subtasks</div>
+            <div style="font-size:12px;color:var(--text-3);margin-top:2px">Break the task into smaller steps</div>
+          </div>
+          <button class="btn btn-ghost btn-sm" onclick="addSubtaskRow()">+ Add Subtask</button>
         </div>
+        <div id="subtask-list" style="display:flex;flex-direction:column;gap:8px;"></div>
+        <div id="subtask-empty" style="font-size:12px;color:var(--text-3);padding:10px 0;">No subtasks added yet — click "+ Add Subtask" to add one.</div>
+      </div>
+
+      <div style="display:flex;gap:10px;margin-top:16px;">
+        <button class="btn btn-primary" onclick="submitTaskCreate()">✓ Create & Notify</button>
+        <button class="btn btn-ghost" onclick="navigate('my-tasks')">Cancel</button>
       </div>
     </div>
   `;
+}
+
+// ── Subtask row management ──────────────────────
+let _subtaskRows = [];
+function addSubtaskRow() {
+  const id = H.uid();
+  _subtaskRows.push(id);
+  const list = document.getElementById('subtask-list');
+  const empty = document.getElementById('subtask-empty');
+  if (empty) empty.style.display = 'none';
+  const row = document.createElement('div');
+  row.id = `strow-${id}`;
+  row.style.cssText = 'display:flex;align-items:center;gap:8px;';
+  row.innerHTML = `
+    <input type="checkbox" id="stcheck-${id}" style="width:16px;height:16px;flex-shrink:0;cursor:pointer" title="Mark complete">
+    <input type="text" id="sttitle-${id}" placeholder="Subtask description..." style="flex:1;padding:8px 10px;border-radius:var(--radius);border:1px solid var(--border);background:var(--bg-base);color:var(--text-1);font-size:13px;">
+    <button onclick="removeSubtaskRow('${id}')" style="color:var(--danger);font-size:16px;line-height:1;padding:4px 6px;cursor:pointer;background:none;border:none;" title="Remove">✕</button>
+  `;
+  list.appendChild(row);
+}
+function removeSubtaskRow(id) {
+  document.getElementById(`strow-${id}`)?.remove();
+  _subtaskRows = _subtaskRows.filter(r => r !== id);
+  if (_subtaskRows.length === 0) {
+    const empty = document.getElementById('subtask-empty');
+    if (empty) empty.style.display = '';
+  }
 }
 
 function submitTaskCreate() {
   const title = document.getElementById('tc-title').value.trim();
   const assignee = document.getElementById('tc-assignee').value;
   const due = document.getElementById('tc-due').value;
-  if (!title || !assignee || !due) { H.notify('Please fill required fields','error'); return; }
+  if (!title || !assignee || !due) { H.notify('Please fill required fields (Title, Assignee, Due Date)','error'); return; }
+
+  // Collect subtasks
+  const subtasks = _subtaskRows.map(id => ({
+    id,
+    title: document.getElementById(`sttitle-${id}`)?.value.trim() || '',
+    done: document.getElementById(`stcheck-${id}`)?.checked || false
+  })).filter(s => s.title);
+
   const task = {
     id: H.uid(), title,
     projectId: document.getElementById('tc-project').value || null,
@@ -1378,10 +1626,12 @@ function submitTaskCreate() {
     dueDate: due, completedAt: null,
     reportingManagerId: currentUser.id,
     tags: document.getElementById('tc-tags').value.split(',').map(t=>t.trim()).filter(Boolean),
+    subtasks,
     createdAt: new Date().toISOString().split('T')[0]
   };
+  _subtaskRows = [];
   Store.set(data => { data.tasks.push(task); return data; });
-  H.notify(`Task created and ${H.getUserById(assignee)?.name} notified!`, 'success');
+  H.notify(`Task "${title}" created and assigned to ${H.getUserById(assignee)?.name}!`, 'success');
   navigate('projects');
 }
 
@@ -1391,12 +1641,12 @@ function submitTaskCreate() {
 function renderProjectCreate() {
   if (!Auth.can(currentUser, 'create_project')) { H.notify('Access denied','error'); navigate('projects'); return; }
   const data = Store.get();
-  const managers = data.users.filter(u => u.role === 'manager' || u.role === 'super_admin');
-  const employees = data.users.filter(u => u.role !== 'super_admin');
+  const managers = data.users.filter(u => (u.role === 'manager' || u.role === 'super_admin') && u.active);
+  const employees = data.users.filter(u => u.active); // all active users can be team members
   const container = document.getElementById('projectcreate-content');
 
   container.innerHTML = `
-    <div class="fade-up" style="max-width:700px;">
+    <div class="fade-up" style="max-width:760px;">
       <div class="card">
         <div class="form-row cols-2">
           <div class="form-field">
@@ -1419,7 +1669,7 @@ function renderProjectCreate() {
             <label>Project Manager *</label>
             <select id="pc-manager">
               <option value="">Select manager...</option>
-              ${managers.map(u=>`<option value="${u.id}">${u.name}</option>`).join('')}
+              ${managers.map(u=>`<option value="${u.id}">${u.name} — ${u.position}</option>`).join('')}
             </select>
           </div>
           <div class="form-field">
@@ -1447,15 +1697,31 @@ function renderProjectCreate() {
             <textarea id="pc-obj" rows="3" placeholder="Objective 1&#10;Objective 2&#10;Objective 3"></textarea>
           </div>
         </div>
+
+        <!-- ✅ Checkbox-based team member picker -->
         <div class="form-row">
           <div class="form-field">
             <label>Team Members</label>
-            <select id="pc-team" multiple style="height:120px">
-              ${employees.map(u=>`<option value="${u.id}">${u.name} (${u.department})</option>`).join('')}
-            </select>
-            <div style="font-size:11px;color:var(--text-3);margin-top:4px">Hold Ctrl/Cmd to select multiple</div>
+            <div style="border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-base);max-height:200px;overflow-y:auto;padding:10px 12px;">
+              ${employees.length === 0
+                ? `<div style="color:var(--text-3);font-size:13px;">No active users found</div>`
+                : employees.map(u => `
+                  <label style="display:flex;align-items:center;gap:10px;padding:6px 4px;cursor:pointer;border-radius:4px;transition:background .15s" onmouseover="this.style.background='var(--bg-hover)'" onmouseout="this.style.background='transparent'">
+                    <input type="checkbox" value="${u.id}" class="pc-member-cb" style="width:15px;height:15px;flex-shrink:0;cursor:pointer">
+                    <div class="avatar" style="width:28px;height:28px;font-size:11px;flex-shrink:0">${u.avatar}</div>
+                    <div>
+                      <div style="font-size:13px;font-weight:600">${u.name}</div>
+                      <div style="font-size:11px;color:var(--text-3)">${u.position} · ${u.department}</div>
+                    </div>
+                    <span class="badge ${u.role==='super_admin'?'badge-info':u.role==='manager'?'badge-success':'badge-muted'}" style="margin-left:auto;font-size:10px">${u.role.replace('_',' ')}</span>
+                  </label>
+                `).join('')
+              }
+            </div>
+            <div style="font-size:11px;color:var(--text-3);margin-top:5px">Click checkboxes to select team members</div>
           </div>
         </div>
+
         <div style="display:flex;gap:10px;margin-top:8px;">
           <button class="btn btn-primary" onclick="submitProjectCreate()">✓ Create Project</button>
           <button class="btn btn-ghost" onclick="navigate('projects')">Cancel</button>
@@ -1470,9 +1736,9 @@ function submitProjectCreate() {
   const code = document.getElementById('pc-code').value.trim();
   const manager = document.getElementById('pc-manager').value;
   const end = document.getElementById('pc-end').value;
-  if (!name||!code||!manager||!end) { H.notify('Please fill required fields','error'); return; }
-  const teamSel = document.getElementById('pc-team');
-  const teamIds = Array.from(teamSel.selectedOptions).map(o=>o.value);
+  if (!name||!code||!manager||!end) { H.notify('Please fill required fields (Name, Code, Manager, End Date)','error'); return; }
+  // Collect checked team members
+  const teamIds = Array.from(document.querySelectorAll('.pc-member-cb:checked')).map(cb => cb.value);
   const project = {
     id: H.uid(), name, code,
     description: document.getElementById('pc-desc').value,
@@ -1484,7 +1750,7 @@ function submitProjectCreate() {
     completion: 0
   };
   Store.set(data => { data.projects.push(project); return data; });
-  H.notify('Project created successfully!', 'success');
+  H.notify(`Project "${name}" created with ${teamIds.length} team member(s)!`, 'success');
   navigate('projects');
 }
 
@@ -2022,7 +2288,12 @@ function changePassword() {
 
 // ─── Modal helpers ────────────────────────────
 function openModal() { document.getElementById('main-modal').classList.add('open'); }
-function closeModal() { document.getElementById('main-modal').classList.remove('open'); }
+function closeModal() {
+  document.getElementById('main-modal').classList.remove('open');
+  // Reset confirm button visibility for next modal use
+  const confirmBtn = document.getElementById('modal-confirm');
+  if (confirmBtn) confirmBtn.style.display = '';
+}
 
 // ─── Project Detail ───────────────────────────
 function showProjectDetail(projId) {
@@ -2253,54 +2524,6 @@ function saveMeeting() {
 }
 
 // ─── Upload Modal ─────────────────────────────
-function openUploadModal() {
-  const data = Store.get();
-  document.getElementById('modal-title').textContent = 'Upload File';
-  document.getElementById('modal-confirm').textContent = '⬆ Upload';
-  const body = document.getElementById('modal-body');
-  body.innerHTML = `
-    <div class="form-row">
-      <div class="form-field"><label>File Name *</label><input id="uf-name" placeholder="document.pdf"></div>
-    </div>
-    <div class="form-row cols-2">
-      <div class="form-field"><label>Type</label>
-        <select id="uf-type"><option>pdf</option><option>xlsx</option><option>docx</option><option>png</option><option>zip</option></select>
-      </div>
-      <div class="form-field"><label>Folder</label>
-        <select id="uf-folder">
-          ${data.folders.map(f=>`<option value="${f.id}">${f.name}</option>`).join('')}
-        </select>
-      </div>
-    </div>
-    <div class="form-row">
-      <div class="form-field"><label>Access</label>
-        <select id="uf-access"><option value="all">Everyone</option><option value="restricted">Restricted</option></select>
-      </div>
-    </div>
-    <div style="border:2px dashed var(--border);border-radius:var(--radius);padding:32px;text-align:center;color:var(--text-3);margin-top:8px">
-      <div style="font-size:32px;margin-bottom:8px">☁</div>
-      <div style="font-size:13px">Click to upload or drag & drop</div>
-      <div style="font-size:11px;margin-top:4px">(Files are stored in cloud)</div>
-    </div>
-  `;
-  document.getElementById('modal-confirm').onclick = () => {
-    const name = document.getElementById('uf-name').value.trim();
-    if (!name) { H.notify('Enter file name','error'); return; }
-    Store.set(data => {
-      data.files.push({
-        id: H.uid(), name, type: document.getElementById('uf-type').value,
-        size: '—', folderId: document.getElementById('uf-folder').value,
-        uploadedBy: currentUser.id, uploadedAt: new Date().toISOString().split('T')[0],
-        permissions: [document.getElementById('uf-access').value==='all'?'all':currentUser.id],
-        url: '#', shared: document.getElementById('uf-access').value==='all'
-      });
-      return data;
-    });
-    closeModal(); H.notify('File uploaded!', 'success'); renderFiles();
-  };
-  openModal();
-}
-
 function openFolderModal() {
   document.getElementById('modal-title').textContent = 'New Folder';
   document.getElementById('modal-confirm').textContent = '+ Create';
