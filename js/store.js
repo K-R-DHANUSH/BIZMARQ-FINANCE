@@ -23,8 +23,8 @@
 //  │  3. Paste both values below ↓                              │
 //  └────────────────────────────────────────────────────────────┘
 
-const GIST_ID    = '915bc7aef3d7130aa2044ba311089dc3';   // e.g. 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4'
-const GIST_TOKEN = '';   // e.g. 'ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+const GIST_ID    = '915bc7aef3d7130aa2044ba311089dc3';   // Leave blank — users configure via the cloud setup modal
+const GIST_TOKEN = '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';   // Leave blank — users configure via the cloud setup modal
 const GIST_FILE  = 'nexus.json';
 
 // Read from localStorage if not hardcoded above — lets users connect via the UI
@@ -370,15 +370,94 @@ const Store = (() => {
     const el = document.getElementById('sync-indicator');
     if (!el) return;
     const map = {
-      syncing: { text: '⟳ Syncing…',   color: 'var(--warn)',    title: 'Saving to GitHub Gist…' },
-      ok:      { text: '✓ Saved',       color: 'var(--success)', title: 'All changes saved to GitHub Gist' },
-      error:   { text: '⚠ Offline',    color: 'var(--danger)',  title: 'Gist sync unavailable — changes saved locally' },
-      local:   { text: '◌ Local only',  color: 'var(--text-3)',  title: 'No Gist configured — data stored in browser only' }
+      syncing: { text: '⟳ Syncing…',      color: 'var(--warn)',    title: 'Saving to GitHub Gist…' },
+      ok:      { text: '✓ Cloud Synced',   color: 'var(--success)', title: 'All changes saved to GitHub Gist — click to manage' },
+      error:   { text: '⚠ Sync Error',    color: 'var(--danger)',  title: 'Gist sync failed — click to reconfigure' },
+      local:   { text: '⚠ Local Only — Click to Connect Cloud', color: 'var(--warn)', title: 'No Gist configured — click to set up cloud sync' }
     };
     const s = map[state] || map.local;
     el.textContent = s.text;
     el.style.color = s.color;
     el.title       = s.title;
+    // Make clickable to open Gist config modal
+    el.style.cursor = 'pointer';
+    el.onclick = () => showGistSetupModal();
+  }
+
+  // ── Full-screen Gist setup modal (shown automatically when unconfigured) ──
+  function showGistSetupModal() {
+    // Remove existing if any
+    const existing = document.getElementById('gist-setup-overlay');
+    if (existing) existing.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'gist-setup-overlay';
+    overlay.style.cssText = `
+      position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.6);
+      display:flex;align-items:center;justify-content:center;padding:24px;
+      backdrop-filter:blur(4px);
+    `;
+
+    const connected = isConfigured();
+    overlay.innerHTML = `
+      <div style="background:var(--bg-card);border:1px solid var(--border-2);border-radius:16px;padding:32px;max-width:520px;width:100%;box-shadow:0 24px 64px rgba(0,0,0,.4);position:relative">
+        <button onclick="document.getElementById('gist-setup-overlay').remove()" style="position:absolute;top:16px;right:16px;color:var(--text-3);font-size:18px;cursor:pointer;line-height:1">✕</button>
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
+          <span style="font-size:28px">☁️</span>
+          <h2 style="font-size:20px;font-weight:800;font-family:var(--font-head)">Connect Cloud Storage</h2>
+        </div>
+        <p style="font-size:13px;color:var(--text-2);margin-bottom:24px;line-height:1.7">
+          Nexus uses <strong>GitHub Gist</strong> as a free cloud backend. Without it, all data (users, projects, tasks, files) is only saved in <em>this browser</em> and lost if you clear cache.<br><br>
+          Setup takes ~2 minutes. You only need a free GitHub account.
+        </p>
+
+        <div style="background:var(--bg-surface);border-radius:12px;padding:16px;margin-bottom:20px;font-size:12px;color:var(--text-2);line-height:1.8">
+          <strong style="color:var(--text-1)">Quick setup:</strong><br>
+          1. Go to <a href="https://github.com/settings/tokens/new" target="_blank" style="color:var(--accent)">github.com/settings/tokens/new</a><br>
+          &nbsp;&nbsp;&nbsp;→ Note: "Nexus App" · Scope: ✅ <strong>gist</strong> only · Generate & copy token<br>
+          2. Go to <a href="https://gist.github.com" target="_blank" style="color:var(--accent)">gist.github.com</a><br>
+          &nbsp;&nbsp;&nbsp;→ Create secret gist, filename: <code style="background:var(--bg-hover);padding:1px 5px;border-radius:4px">nexus.json</code>, content: <code style="background:var(--bg-hover);padding:1px 5px;border-radius:4px">{}</code><br>
+          &nbsp;&nbsp;&nbsp;→ Copy the Gist ID from the URL
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:16px">
+          <div>
+            <label style="font-size:12px;font-weight:600;color:var(--text-2);display:block;margin-bottom:6px">GIST ID</label>
+            <input type="text" id="gist-modal-id" placeholder="a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4" value="${getGistId()}"
+              style="width:100%;font-family:monospace;font-size:13px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-base);color:var(--text-1)">
+          </div>
+          <div>
+            <label style="font-size:12px;font-weight:600;color:var(--text-2);display:block;margin-bottom:6px">PERSONAL ACCESS TOKEN <span style="color:var(--text-3)">(gist scope only)</span></label>
+            <input type="password" id="gist-modal-token" placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxx" value="${getGistToken()}"
+              style="width:100%;font-family:monospace;font-size:13px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-base);color:var(--text-1)">
+          </div>
+        </div>
+
+        <div id="gist-modal-msg" style="font-size:12px;min-height:18px;margin-bottom:12px"></div>
+
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <button id="gist-modal-save-btn" onclick="Store._saveGistConfigFromModal()" style="flex:1;padding:12px;background:var(--accent);color:#fff;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;border:none">
+            ☁️ Save & Connect
+          </button>
+          <button onclick="document.getElementById('gist-setup-overlay').remove()" style="padding:12px 20px;background:var(--bg-hover);color:var(--text-2);border-radius:8px;font-size:13px;cursor:pointer;border:1px solid var(--border)">
+            Skip for now
+          </button>
+          ${connected ? `<button onclick="Store._clearGistConfig()" style="padding:12px 20px;background:transparent;color:var(--danger);border:1px solid var(--danger);border-radius:8px;font-size:13px;cursor:pointer">Disconnect</button>` : ''}
+        </div>
+        ${!connected ? `<p style="font-size:11px;color:var(--text-3);margin-top:12px;text-align:center">Data will only be stored locally in this browser until you connect.</p>` : ''}
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    // Focus first empty field
+    const idEl = document.getElementById('gist-modal-id');
+    const tokEl = document.getElementById('gist-modal-token');
+    if (!idEl.value) idEl.focus();
+    else if (!tokEl.value) tokEl.focus();
+
+    // Allow Enter key
+    [idEl, tokEl].forEach(el => el && el.addEventListener('keydown', e => {
+      if (e.key === 'Enter') Store._saveGistConfigFromModal();
+    }));
   }
 
   // ── Public API ───────────────────────────────
@@ -500,16 +579,60 @@ const Store = (() => {
     localStorage.removeItem('nexus_gist_token');
     showSyncIndicator('local');
     H.notify('Gist disconnected. Data saved locally.', 'info');
-    // Re-render widget
+    // Remove the setup overlay if open, re-open with disconnected state
+    document.getElementById('gist-setup-overlay')?.remove();
+    // Re-render Settings widget if visible
     const el = document.querySelector('[data-gist-widget]');
     if (el) renderSettingsWidget(el);
   }
 
+  async function _saveGistConfigFromModal() {
+    const id    = document.getElementById('gist-modal-id')?.value.trim();
+    const token = document.getElementById('gist-modal-token')?.value.trim();
+    const msg   = document.getElementById('gist-modal-msg');
+    const btn   = document.getElementById('gist-modal-save-btn');
+    if (!id || !token) {
+      if (msg) msg.innerHTML = '<span style="color:var(--danger)">⚠ Both Gist ID and Token are required.</span>';
+      return;
+    }
+    localStorage.setItem('nexus_gist_id', id);
+    localStorage.setItem('nexus_gist_token', token);
+    if (msg) msg.innerHTML = '<span style="color:var(--warn)">⟳ Testing connection…</span>';
+    if (btn) { btn.disabled = true; btn.textContent = '⟳ Connecting…'; }
+    try {
+      showSyncIndicator('syncing');
+      const remote = await gistRead();
+      if (!remote) {
+        // First time — push current local data to Gist
+        await gistWrite(_cache || defaults);
+        if (!_cache) _cache = JSON.parse(JSON.stringify(defaults));
+      } else {
+        // Merge: keep remote as source of truth but ensure no data is lost
+        _cache = remote;
+        lsWrite(_cache);
+      }
+      showSyncIndicator('ok');
+      if (msg) msg.innerHTML = '<span style="color:var(--success)">✓ Connected! All data is now synced to your Gist.</span>';
+      if (btn) { btn.textContent = '✓ Connected!'; }
+      H.notify('☁️ GitHub Gist connected! Data synced.', 'success');
+      setTimeout(() => { document.getElementById('gist-setup-overlay')?.remove(); }, 1500);
+      // Re-render current page to reflect synced data
+      if (typeof navigate === 'function') navigate(window._currentPage || 'dashboard');
+    } catch (err) {
+      localStorage.removeItem('nexus_gist_id');
+      localStorage.removeItem('nexus_gist_token');
+      showSyncIndicator('error');
+      if (msg) msg.innerHTML = `<span style="color:var(--danger)">✗ ${err.message} — Check your Gist ID and Token.</span>`;
+      if (btn) { btn.disabled = false; btn.textContent = '☁️ Save & Connect'; }
+      H.notify('Connection failed — check your credentials', 'error');
+    }
+  }
+
   return {
     get, set, reset, init,
-    defaults, isConfigured, showSyncIndicator,
+    defaults, isConfigured, showSyncIndicator, showGistSetupModal,
     renderSettingsWidget,
-    _saveGistConfig, _testGistConnection, _clearGistConfig
+    _saveGistConfig, _saveGistConfigFromModal, _testGistConnection, _clearGistConfig
   };
 })();
 
