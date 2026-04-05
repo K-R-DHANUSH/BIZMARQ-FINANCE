@@ -808,15 +808,17 @@ function renderProjectCard(p, data) {
   const manager = H.getUserById(p.managerId);
   const tasks = data.tasks.filter(t => t.projectId === p.id);
   const isSA = currentUser.role === 'super_admin';
+  const canEdit = Auth.can(currentUser, 'create_project');
   return `
     <div class="card" style="cursor:pointer" onclick="showProjectDetail('${p.id}')">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;">
-        <div>
-          <div style="font-size:10px;font-family:var(--font-mono);color:var(--text-3);margin-bottom:4px">${p.code}</div>
-          <div style="font-size:15px;font-weight:700;font-family:var(--font-head)">${p.name}</div>
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:10px;font-family:var(--font-mono);color:var(--text-3);margin-bottom:3px;letter-spacing:.5px">${p.code}</div>
+          <div style="font-size:15px;font-weight:700;font-family:var(--font-head);line-height:1.3">${p.name}</div>
         </div>
-        <div style="display:flex;align-items:center;gap:6px">
+        <div style="display:flex;align-items:center;gap:6px;margin-left:10px;flex-shrink:0">
           <span class="badge ${H.statusBadge(p.status)}">${p.status}</span>
+          ${canEdit ? `<button class="btn btn-ghost btn-sm btn-icon" onclick="event.stopPropagation();openEditProjectModal('${p.id}')" title="Edit project" style="font-size:13px">✏️</button>` : ''}
           ${isSA ? `<button class="btn btn-danger btn-sm btn-icon" onclick="event.stopPropagation();deleteProject('${p.id}')" title="Delete project" style="font-size:13px">🗑</button>` : ''}
         </div>
       </div>
@@ -854,6 +856,92 @@ function deleteProject(projId) {
   });
   H.notify('Project deleted', 'success');
   renderProjects();
+}
+
+function openEditProjectModal(projId) {
+  const data = Store.get();
+  const p = data.projects.find(x => x.id === projId);
+  if (!p) return;
+  const managers = data.users.filter(u => (u.role === 'manager' || u.role === 'super_admin') && u.active);
+  const employees = data.users.filter(u => u.active);
+
+  document.getElementById('modal-title').textContent = `✏️ Edit Project — ${p.code}`;
+  document.getElementById('modal-confirm').textContent = '✓ Save Changes';
+  document.getElementById('modal-body').innerHTML = `
+    <div class="form-row cols-2">
+      <div class="form-field"><label>Project Name *</label><input id="ep-name" value="${p.name}"></div>
+      <div class="form-field"><label>Project Code *</label><input id="ep-code" value="${p.code}"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-field"><label>Description</label><textarea id="ep-desc" rows="3">${p.description||''}</textarea></div>
+    </div>
+    <div class="form-row cols-2">
+      <div class="form-field"><label>Status</label>
+        <select id="ep-status">
+          ${['planning','active','on_hold','completed'].map(s=>`<option value="${s}" ${p.status===s?'selected':''}>${s.replace('_',' ')}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-field"><label>Priority</label>
+        <select id="ep-priority">
+          ${['low','medium','high'].map(s=>`<option value="${s}" ${p.priority===s?'selected':''}>${s}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div class="form-row cols-2">
+      <div class="form-field"><label>Project Manager *</label>
+        <select id="ep-manager">
+          <option value="">Select manager...</option>
+          ${managers.map(u=>`<option value="${u.id}" ${p.managerId===u.id?'selected':''}>${u.name} — ${u.position}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-field"><label>Completion %</label>
+        <input type="number" id="ep-completion" min="0" max="100" value="${p.completion||0}">
+      </div>
+    </div>
+    <div class="form-row cols-2">
+      <div class="form-field"><label>Start Date</label><input type="date" id="ep-start" value="${p.startDate||''}"></div>
+      <div class="form-field"><label>End Date *</label><input type="date" id="ep-end" value="${p.endDate||''}"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-field"><label>Team Members</label>
+        <div style="border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-base);max-height:180px;overflow-y:auto;padding:10px 12px;">
+          ${employees.map(u => `
+            <label style="display:flex;align-items:center;gap:10px;padding:5px 4px;cursor:pointer;border-radius:4px;" onmouseover="this.style.background='var(--bg-hover)'" onmouseout="this.style.background='transparent'">
+              <input type="checkbox" value="${u.id}" class="ep-member-cb" ${(p.teamIds||[]).includes(u.id)?'checked':''} style="width:14px;height:14px;cursor:pointer">
+              <div class="avatar" style="width:24px;height:24px;font-size:9px;flex-shrink:0">${u.avatar}</div>
+              <div style="flex:1"><div style="font-size:13px;font-weight:500">${u.name}</div><div style="font-size:10px;color:var(--text-3)">${u.position}</div></div>
+              <span class="badge ${u.role==='super_admin'?'badge-info':u.role==='manager'?'badge-success':'badge-muted'}" style="font-size:10px">${u.role.replace('_',' ')}</span>
+            </label>
+          `).join('')}
+        </div>
+      </div>
+    </div>
+  `;
+  document.getElementById('modal-confirm').onclick = () => {
+    const name = document.getElementById('ep-name').value.trim();
+    const code = document.getElementById('ep-code').value.trim();
+    const manager = document.getElementById('ep-manager').value;
+    const end = document.getElementById('ep-end').value;
+    if (!name||!code||!manager||!end) { H.notify('Fill required fields','error'); return; }
+    const teamIds = Array.from(document.querySelectorAll('.ep-member-cb:checked')).map(cb=>cb.value);
+    Store.set(data => {
+      const proj = data.projects.find(x=>x.id===projId);
+      if (proj) {
+        proj.name=name; proj.code=code; proj.description=document.getElementById('ep-desc').value;
+        proj.status=document.getElementById('ep-status').value;
+        proj.priority=document.getElementById('ep-priority').value;
+        proj.managerId=manager; proj.endDate=end;
+        proj.startDate=document.getElementById('ep-start').value;
+        proj.completion=Math.min(100,Math.max(0,parseInt(document.getElementById('ep-completion').value)||0));
+        proj.teamIds=teamIds;
+      }
+      return data;
+    });
+    closeModal();
+    H.notify(`Project "${name}" updated!`, 'success');
+    renderProjects();
+  };
+  openModal();
 }
 
 // ═══════════════════════════════════════════════
@@ -1074,7 +1162,7 @@ function renderFiles() {
           <button class="btn btn-ghost" onclick="openFolderModal()">📁 New Folder</button>
         ` : ''}
         <div style="margin-left:auto;">
-          <span class="badge badge-muted">☁️ Files hosted on Catbox.moe</span>
+          <span class="badge badge-muted">💾 Files stored in browser</span>
         </div>
       </div>
 
@@ -1128,7 +1216,9 @@ function renderFiles() {
                   ${f.shared ? '<span class="badge badge-info" style="margin-top:6px;font-size:10px">Shared</span>' : ''}
                   <div style="display:flex;gap:6px;margin-top:10px;">
                     ${f.url && f.url !== '#'
-                      ? `<a href="${f.url}" target="_blank" class="btn btn-ghost btn-sm" style="flex:1;text-align:center;text-decoration:none;">⬇ Download</a>`
+                      ? f.url.startsWith('local:')
+                        ? `<button class="btn btn-ghost btn-sm" onclick="downloadLocalFile('${f.id}','${f.name}')" style="flex:1;text-align:center;">⬇ Download</button>`
+                        : `<a href="${f.url}" target="_blank" class="btn btn-ghost btn-sm" style="flex:1;text-align:center;text-decoration:none;">⬇ Download</a>`
                       : `<button class="btn btn-ghost btn-sm" style="flex:1;opacity:.4" disabled>⬇ No link</button>`
                     }
                     ${canDelete ? `<button class="btn btn-ghost btn-sm" onclick="deleteFile('${f.id}')" title="Delete file" style="color:var(--danger);padding:0 8px;">🗑</button>` : ''}
@@ -1172,7 +1262,11 @@ function openFolderView(folderId) {
                   <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${f.name}</div>
                   <div style="font-size:11px;color:var(--text-3);">${f.size} · ${H.fmt(f.uploadedAt)} · by ${H.getUserById(f.uploadedBy)?.name || 'Unknown'}</div>
                 </div>
-                ${f.url && f.url !== '#' ? `<a href="${f.url}" target="_blank" class="btn btn-ghost btn-sm">⬇</a>` : ''}
+                ${f.url && f.url !== '#'
+                  ? f.url.startsWith('local:')
+                    ? `<button class="btn btn-ghost btn-sm" onclick="downloadLocalFile('${f.id}','${f.name}')">⬇</button>`
+                    : `<a href="${f.url}" target="_blank" class="btn btn-ghost btn-sm">⬇</a>`
+                  : ''}
                 ${canDelete ? `<button class="btn btn-ghost btn-sm" onclick="deleteFile('${f.id}');closeModal();renderFiles();" style="color:var(--danger)">🗑</button>` : ''}
               </div>
             `;
@@ -1187,6 +1281,7 @@ function openFolderView(folderId) {
 function deleteFile(fileId) {
   if (!confirm('Delete this file? This cannot be undone.')) return;
   Store.set(data => { data.files = data.files.filter(f => f.id !== fileId); return data; });
+  localStorage.removeItem(`nexus_file_${fileId}`); // clean up base64 data
   H.notify('File deleted', 'info');
   renderFiles();
 }
@@ -1206,7 +1301,17 @@ function deleteFolder(folderId) {
   renderFiles();
 }
 
-// ── Upload file modal (real upload to Catbox.moe) ──────────
+// ── Download locally stored file ──────────────────────────────
+function downloadLocalFile(fileId, fileName) {
+  const base64 = localStorage.getItem(`nexus_file_${fileId}`);
+  if (!base64) { H.notify('File data not found in local storage', 'error'); return; }
+  const a = document.createElement('a');
+  a.href = base64;
+  a.download = fileName;
+  a.click();
+}
+
+// ── Upload file modal (local base64 storage) ──────────
 function openUploadModal(targetFolderId = null) {
   const data = Store.get();
   document.getElementById('modal-title').textContent = '⬆ Upload File';
@@ -1216,7 +1321,7 @@ function openUploadModal(targetFolderId = null) {
       <div class="form-field">
         <label>Select File *</label>
         <input type="file" id="uf-file" style="padding:8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-base);color:var(--text-1);width:100%;">
-        <div style="font-size:11px;color:var(--text-3);margin-top:4px">Files are uploaded to Catbox.moe (free, permanent hosting). Max ~200MB.</div>
+        <div style="font-size:11px;color:var(--text-3);margin-top:4px">Files are stored locally in your browser. Max ~10MB per file (localStorage limit).</div>
       </div>
     </div>
     <div class="form-row">
@@ -1263,34 +1368,38 @@ async function submitFileUpload() {
   const result = document.getElementById('uf-result');
 
   btn.disabled = true;
-  btn.textContent = '⟳ Uploading…';
+  btn.textContent = '⟳ Reading file…';
   progress.style.display = 'block';
 
   // Animate bar
   let pct = 0;
-  const ticker = setInterval(() => { pct = Math.min(pct + 8, 85); bar.style.width = pct + '%'; }, 200);
+  const ticker = setInterval(() => { pct = Math.min(pct + 12, 85); bar.style.width = pct + '%'; }, 150);
 
   try {
-    // Upload to Catbox.moe — free, no account needed, permanent links
-    const form = new FormData();
-    form.append('reqtype', 'fileupload');
-    form.append('fileToUpload', file);
-
-    const res = await fetch('https://catbox.moe/user/api.php', { method: 'POST', body: form });
-    const url = await res.text();
+    // Store file as base64 in localStorage — works offline, no CORS issues
+    const base64 = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result); // data:type;base64,xxx
+      reader.onerror = () => reject(new Error('Failed to read file'));
+      reader.readAsDataURL(file);
+    });
 
     clearInterval(ticker);
     bar.style.width = '100%';
 
-    if (!url || !url.startsWith('https://')) throw new Error('Upload failed — invalid response from Catbox');
-
+    const fileId = H.uid();
     const ext = file.name.split('.').pop().toLowerCase();
     const sizeKB = file.size / 1024;
     const sizeStr = sizeKB > 1024 ? `${(sizeKB/1024).toFixed(1)} MB` : `${Math.round(sizeKB)} KB`;
 
+    // Save base64 data separately keyed by fileId (avoids bloating main store)
+    try { localStorage.setItem(`nexus_file_${fileId}`, base64); } catch(e) {
+      throw new Error('Storage quota exceeded — delete some files or use smaller files');
+    }
+
     Store.set(data => {
       data.files.push({
-        id: H.uid(),
+        id: fileId,
         name: file.name,
         type: ext,
         size: sizeStr,
@@ -1298,13 +1407,13 @@ async function submitFileUpload() {
         uploadedBy: currentUser.id,
         uploadedAt: new Date().toISOString().split('T')[0],
         permissions: [document.getElementById('uf-access').value === 'all' ? 'all' : currentUser.id],
-        url: url.trim(),
+        url: `local:${fileId}`, // sentinel for local storage
         shared: document.getElementById('uf-access').value === 'all'
       });
       return data;
     });
 
-    result.innerHTML = `<span style="color:var(--success)">✓ Uploaded! <a href="${url.trim()}" target="_blank" style="color:var(--accent)">View file →</a></span>`;
+    result.innerHTML = `<span style="color:var(--success)">✓ Saved locally! File is available for download.</span>`;
     btn.textContent = '✓ Done';
     H.notify(`${file.name} uploaded successfully!`, 'success');
     setTimeout(() => { closeModal(); renderFiles(); }, 1200);
@@ -1316,7 +1425,7 @@ async function submitFileUpload() {
     btn.disabled = false;
     btn.textContent = '⬆ Retry Upload';
     result.innerHTML = `<span style="color:var(--danger)">✗ ${err.message}</span>`;
-    H.notify('Upload failed — check your connection', 'error');
+    H.notify('Upload failed — ' + err.message, 'error');
   }
 }
 
@@ -1490,8 +1599,16 @@ function renderTaskCreate() {
   if (!Auth.can(currentUser, 'create_task')) { H.notify('Access denied','error'); navigate('my-tasks'); return; }
   const data = Store.get();
   const container = document.getElementById('taskcreate-content');
-  // ✅ Only ACTIVE users (employees + managers)
-  const employees = data.users.filter(u => (u.role === 'employee' || u.role === 'manager') && u.active);
+  // All active users (employees + managers) can be assigned tasks
+  const allAssignable = data.users.filter(u => u.active && u.role !== 'super_admin');
+
+  function buildAssigneeOptions(filterTeamIds = null) {
+    const pool = filterTeamIds
+      ? allAssignable.filter(u => filterTeamIds.includes(u.id))
+      : allAssignable;
+    if (!pool.length) return '<option disabled>No active members found</option>';
+    return pool.map(u=>`<option value="${u.id}">${u.name} — ${u.position} (${u.department})</option>`).join('');
+  }
 
   container.innerHTML = `
     <div class="fade-up" style="max-width:760px;">
@@ -1503,9 +1620,9 @@ function renderTaskCreate() {
           </div>
           <div class="form-field">
             <label>Project</label>
-            <select id="tc-project">
+            <select id="tc-project" onchange="onTaskProjectChange()">
               <option value="">— No Project —</option>
-              ${data.projects.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}
+              ${data.projects.map(p=>`<option value="${p.id}" data-team='${JSON.stringify(p.teamIds||[])}'>${p.code} — ${p.name}</option>`).join('')}
             </select>
           </div>
         </div>
@@ -1517,13 +1634,10 @@ function renderTaskCreate() {
         </div>
         <div class="form-row cols-2">
           <div class="form-field">
-            <label>Assign To *</label>
+            <label>Assign To * <span id="tc-assign-hint" style="font-size:10px;color:var(--text-3);font-weight:400">(all active members)</span></label>
             <select id="tc-assignee">
-              <option value="">Select employee...</option>
-              ${employees.length
-                ? employees.map(u=>`<option value="${u.id}">${u.name} — ${u.position} (${u.department})</option>`).join('')
-                : '<option disabled>No active employees found</option>'
-              }
+              <option value="">Select member...</option>
+              ${buildAssigneeOptions()}
             </select>
           </div>
           <div class="form-field">
@@ -1573,6 +1687,33 @@ function renderTaskCreate() {
       </div>
     </div>
   `;
+}
+
+function onTaskProjectChange() {
+  const data = Store.get();
+  const sel = document.getElementById('tc-project');
+  const opt = sel.options[sel.selectedIndex];
+  const assignSel = document.getElementById('tc-assignee');
+  const hint = document.getElementById('tc-assign-hint');
+  const allAssignable = data.users.filter(u => u.active && u.role !== 'super_admin');
+
+  let pool = allAssignable;
+  if (sel.value) {
+    const project = data.projects.find(p => p.id === sel.value);
+    if (project && project.teamIds && project.teamIds.length > 0) {
+      pool = allAssignable.filter(u => project.teamIds.includes(u.id));
+      hint.textContent = `(${pool.length} project member${pool.length!==1?'s':''})`;
+    } else {
+      hint.textContent = '(no team assigned — showing all)';
+    }
+  } else {
+    hint.textContent = '(all active members)';
+  }
+
+  assignSel.innerHTML = '<option value="">Select member...</option>' +
+    (pool.length
+      ? pool.map(u=>`<option value="${u.id}">${u.name} — ${u.position} (${u.department})</option>`).join('')
+      : '<option disabled>No members found</option>');
 }
 
 // ── Subtask row management ──────────────────────
