@@ -40,7 +40,7 @@ function renderHeader() {
   document.getElementById('notif-count').style.display =
     getUnreadNotifs() > 0 ? 'block' : 'none';
   // Sync indicator state
-  if (!Store.isBinConfigured()) {
+  if (!Store.isConfigured()) {
     Store.showSyncIndicator('local');
     // Show setup banner once for super admins
     if (currentUser.role === 'super_admin') showSetupBanner();
@@ -64,74 +64,19 @@ function showSetupBanner() {
   `;
   banner.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:8px">
-      <div style="font-size:13px;font-weight:700;color:var(--text-1)">☁️ Connect Cloud Storage</div>
+      <div style="font-size:13px;font-weight:700;color:var(--text-1)">☁️ Connect GitHub Gist</div>
       <button onclick="document.getElementById('setup-banner').remove();sessionStorage.setItem('banner_dismissed','1')" style="color:var(--text-3);font-size:16px;line-height:1;cursor:pointer">✕</button>
     </div>
     <div style="font-size:12px;color:var(--text-2);line-height:1.6;margin-bottom:12px">
       Data is currently saved in <strong>browser localStorage only</strong>.<br>
-      Connect JSONBin to sync across devices & users.
+      Connect a GitHub Gist to sync across devices &amp; users in real time.
     </div>
-    <button class="btn btn-primary btn-sm" onclick="openJsonBinSetupModal()">⚙️ Set Up JSONBin →</button>
+    <button class="btn btn-primary btn-sm" onclick="navigate('settings');document.getElementById('setup-banner')?.remove()">⚙️ Go to Settings → Cloud →</button>
   `;
   document.body.appendChild(banner);
 }
 
-function openJsonBinSetupModal() {
-  document.getElementById('setup-banner')?.remove();
-  document.getElementById('modal-title').textContent = '☁️ Connect JSONBin Cloud Storage';
-  document.getElementById('modal-confirm').textContent = '✓ Save & Test Connection';
-  document.getElementById('modal-body').innerHTML = `
-    <div style="background:var(--bg-base);border-radius:var(--radius);padding:16px;margin-bottom:20px;border:1px solid var(--border)">
-      <div style="font-size:13px;font-weight:700;margin-bottom:10px">📋 Setup Guide (2 minutes)</div>
-      <ol style="font-size:12px;color:var(--text-2);line-height:2.2;padding-left:18px">
-        <li>Go to <a href="https://jsonbin.io" target="_blank" style="color:var(--accent)">jsonbin.io</a> → Sign up free</li>
-        <li>Click <strong>CREATE BIN</strong> → paste <code style="background:var(--bg-hover);padding:1px 5px;border-radius:3px">{}</code> → Save</li>
-        <li>Copy the <strong>BIN ID</strong> from the URL bar</li>
-        <li>Go to <strong>API Keys</strong> → copy your <strong>Master Key</strong></li>
-        <li>Paste both below and click Save</li>
-      </ol>
-    </div>
-    <div class="form-row">
-      <div class="form-field">
-        <label>JSONBin BIN ID</label>
-        <input id="jb-bin" placeholder="e.g. 664abc123def456789" style="font-family:var(--font-mono)">
-      </div>
-    </div>
-    <div class="form-row">
-      <div class="form-field">
-        <label>Master API Key</label>
-        <input id="jb-key" type="password" placeholder="$2a$10$..." style="font-family:var(--font-mono)">
-      </div>
-    </div>
-    <div id="jb-status" style="font-size:12px;margin-top:8px;min-height:20px"></div>
-  `;
-  document.getElementById('modal-confirm').onclick = testAndSaveJsonBin;
-  openModal();
-}
-
-async function testAndSaveJsonBin() {
-  const binId = document.getElementById('jb-bin').value.trim();
-  const apiKey = document.getElementById('jb-key').value.trim();
-  const status = document.getElementById('jb-status');
-  if (!binId || !apiKey) { H.notify('Both fields are required', 'error'); return; }
-  status.innerHTML = '<span style="color:var(--warn)">⟳ Testing connection…</span>';
-  try {
-    // Test read
-    const res = await fetch(`https://api.jsonbin.io/v3/b/${binId}/latest`, {
-      headers: { 'X-Master-Key': apiKey }
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    // Save credentials to localStorage (not sensitive — client-side app)
-    localStorage.setItem('nexus_bin_id', binId);
-    localStorage.setItem('nexus_bin_key', apiKey);
-    // Reload page so store.js picks up the new config
-    status.innerHTML = '<span style="color:var(--success)">✓ Connection successful! Reloading…</span>';
-    H.notify('JSONBin connected! Syncing data…', 'success');
-    setTimeout(() => window.location.reload(), 1200);
-  } catch(err) {
-    status.innerHTML = `<span style="color:var(--danger)">✕ Connection failed: ${err.message}. Check your BIN ID and API Key.</span>`;
-  }
-}
+// openJsonBinSetupModal removed — replaced by GitHub Gist (Settings → Cloud tab)
 
 function getUnreadNotifs() {
   const data = Store.get();
@@ -1752,6 +1697,7 @@ function renderSettings() {
             <div class="settings-nav-item" onclick="switchSettingsTab(this,'s-skills')">⚡ Skills & Expertise</div>
             <div class="settings-nav-item" onclick="switchSettingsTab(this,'s-career')">📈 Career Details</div>
             <div class="settings-nav-item" onclick="switchSettingsTab(this,'s-security')">🔒 Security</div>
+            ${currentUser.role === 'super_admin' ? `<div class="settings-nav-item" onclick="switchSettingsTab(this,'s-cloud')">☁️ Cloud Storage</div>` : ''}
           </div>
         </div>
       </div>
@@ -1908,9 +1854,59 @@ function renderSettings() {
             <button class="btn btn-primary" onclick="changePassword()">🔒 Update Password</button>
           </div>
         </div>
+
+        <!-- Cloud Storage (super admin only) -->
+        ${currentUser.role === 'super_admin' ? `
+        <div id="s-cloud" class="settings-section">
+          <div class="card">
+            <span class="settings-label">GitHub Gist — Real-time Backend</span>
+            <p style="font-size:13px;color:var(--text-2);line-height:1.7;margin-bottom:20px">
+              All Nexus data (users, projects, tasks, messages) is synced to a private GitHub Gist.
+              Every change is pushed within ~1 second. Any browser that connects with the same Gist ID
+              sees live data instantly — no server, no database, no cost.
+            </p>
+
+            <!-- How-to guide -->
+            <details style="margin-bottom:20px;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden">
+              <summary style="padding:12px 16px;cursor:pointer;font-size:13px;font-weight:600;background:var(--bg-base);user-select:none">
+                📋 How to set up (2 minutes)
+              </summary>
+              <ol style="font-size:12px;color:var(--text-2);line-height:2.4;padding:14px 14px 14px 32px;margin:0;background:var(--bg-base)">
+                <li>Go to <a href="https://github.com/settings/tokens/new" target="_blank" style="color:var(--accent)">github.com/settings/tokens/new</a></li>
+                <li>Note: <strong>Nexus App</strong> · Expiration: <em>No expiration</em> · Scope: tick <strong>gist</strong> only → Generate</li>
+                <li>Copy the token (starts with <code style="background:var(--bg-hover);padding:1px 5px;border-radius:3px">ghp_</code>)</li>
+                <li>Go to <a href="https://gist.github.com" target="_blank" style="color:var(--accent)">gist.github.com</a> → New gist</li>
+                <li>Filename: <code style="background:var(--bg-hover);padding:1px 5px;border-radius:3px">nexus.json</code> · Content: <code style="background:var(--bg-hover);padding:1px 5px;border-radius:3px">{}</code> → Create <strong>secret</strong> gist</li>
+                <li>Copy the Gist ID from the URL (the long hash after your username)</li>
+                <li>Paste both below and click <strong>Save &amp; Connect</strong></li>
+              </ol>
+            </details>
+
+            <div data-gist-widget></div>
+          </div>
+
+          <!-- Danger zone -->
+          <div class="card" style="margin-top:16px;border-color:var(--danger-muted,#3a1a1a)">
+            <span class="settings-label" style="color:var(--danger)">Danger Zone</span>
+            <p style="font-size:13px;color:var(--text-2);margin-bottom:14px">
+              Reset all data back to factory defaults. This will overwrite both local storage and the connected Gist — <strong>irreversible</strong>.
+            </p>
+            <button class="btn btn-ghost" style="color:var(--danger);border-color:var(--danger)"
+              onclick="if(confirm('Reset ALL data to defaults? This cannot be undone.'))Store.reset().then(()=>{H.notify('Data reset to defaults','info');setTimeout(()=>window.location.reload(),800)})">
+              ⚠ Reset to Factory Defaults
+            </button>
+          </div>
+        </div>
+        ` : ''}
       </div>
     </div>
   `;
+
+  // Render the Gist widget after DOM is set
+  if (currentUser.role === 'super_admin') {
+    const widgetEl = document.querySelector('[data-gist-widget]');
+    if (widgetEl) Store.renderSettingsWidget(widgetEl);
+  }
 }
 
 function switchSettingsTab(btn, sectionId) {
