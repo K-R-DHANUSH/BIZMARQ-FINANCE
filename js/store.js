@@ -1,26 +1,37 @@
-// ═══════════════════════════════════════════════
-//  NEXUS — Central Data Store v2
-//  Backend: JSONBin.io  (real-time cloud storage)
-//  Falls back to localStorage if offline / no bin
-// ═══════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+//  NEXUS — Central Data Store v3
+//  Backend : GitHub Gist  (free, unlimited API calls, no CORS)
+//  Fallback : localStorage  (offline / unconfigured)
+// ═══════════════════════════════════════════════════════════════
+//
+//  ┌─── ONE-TIME SETUP (takes ~2 minutes) ──────────────────────┐
+//  │                                                            │
+//  │  1. Go to https://github.com/settings/tokens/new          │
+//  │     → Note: "Nexus App"                                    │
+//  │     → Expiration: No expiration (or 1 year)                │
+//  │     → Scopes: tick  "gist"  only                           │
+//  │     → Click Generate → copy the token                      │
+//  │                                                            │
+//  │  2. Go to https://gist.github.com                         │
+//  │     → Description: "Nexus Data Store"                      │
+//  │     → Filename: nexus.json                                 │
+//  │     → Content: {}                                          │
+//  │     → Click "Create secret gist"                           │
+//  │     → Copy the Gist ID from the URL                        │
+//  │       e.g. https://gist.github.com/youruser/GIST_ID_HERE   │
+//  │                                                            │
+//  │  3. Paste both values below ↓                              │
+//  └────────────────────────────────────────────────────────────┘
 
-// ─── JSONBin Config ───────────────────────────
-//  HOW TO SET UP (one-time, takes 2 minutes):
-//  1. Go to https://jsonbin.io and sign up free
-//  2. Click "CREATE BIN", paste {} as content, save
-//  3. Copy the BIN ID from the URL  → paste below
-//  4. Go to API Keys → copy your Master Key       → paste below
-//  Done! All data now syncs to the cloud.
-// ─────────────────────────────────────────────
-const JSONBIN_BIN_ID  = '';   // e.g. '664abc123def456'
-const JSONBIN_API_KEY = '';   // e.g. '$2a$10$...'
-const JSONBIN_BASE    = 'https://api.jsonbin.io/v3/b';
+const GIST_ID    = '';   // e.g. 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4'
+const GIST_TOKEN = '';   // e.g. 'ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+const GIST_FILE  = 'nexus.json';
 
-// Read credentials: static constants above take priority; fall back to localStorage
-// so users can connect via the UI without editing code.
-function getBinId()  { return JSONBIN_BIN_ID  || localStorage.getItem('nexus_bin_id')  || ''; }
-function getBinKey() { return JSONBIN_API_KEY || localStorage.getItem('nexus_bin_key') || ''; }
+// Read from localStorage if not hardcoded above — lets users connect via the UI
+function getGistId()    { return GIST_ID    || localStorage.getItem('nexus_gist_id')    || ''; }
+function getGistToken() { return GIST_TOKEN || localStorage.getItem('nexus_gist_token') || ''; }
 
+// ─── Seed / Default Data ──────────────────────────────────────
 const defaults = {
   users: [
     {
@@ -238,79 +249,103 @@ const defaults = {
   ]
 };
 
-// ─── Store ────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+//  Store  —  GitHub Gist backend
+// ═══════════════════════════════════════════════════════════════
 const Store = (() => {
-  const LS_KEY = 'nexus_data';
-  const LS_DIRTY = 'nexus_dirty';  // flag: local changes pending sync
-  let _cache = null;               // in-memory cache
-  let _syncTimer = null;           // debounce timer for writes
+  const LS_KEY   = 'nexus_data';
+  const LS_DIRTY = 'nexus_dirty';
+  const GIST_API = 'https://api.github.com/gists';
 
-  // ── Helpers ──────────────────────────────────
-  const isBinConfigured = () => !!(getBinId() && getBinKey());
+  let _cache     = null;
+  let _syncTimer = null;
 
-  const lsRead = () => {
-    try { return JSON.parse(localStorage.getItem(LS_KEY)); } catch { return null; }
-  };
-  const lsWrite = (data) => {
-    try { localStorage.setItem(LS_KEY, JSON.stringify(data)); } catch (e) { console.warn('LS write failed', e); }
-  };
+  // ── Config check ─────────────────────────────
+  const isConfigured = () => !!(getGistId() && getGistToken());
 
-  // ── JSONBin API ──────────────────────────────
-  const binHeaders = () => ({
-    'Content-Type': 'application/json',
-    'X-Master-Key': getBinKey(),
-    'X-Bin-Versioning': 'false'   // always overwrite latest
-  });
+  // ── localStorage helpers ─────────────────────
+  const lsRead  = () => { try { return JSON.parse(localStorage.getItem(LS_KEY)); } catch { return null; } };
+  const lsWrite = (d) => { try { localStorage.setItem(LS_KEY, JSON.stringify(d)); } catch (e) { console.warn('LS write failed', e); } };
 
-  async function binRead() {
-    const res = await fetch(`${JSONBIN_BASE}/${getBinId()}/latest`, {
-      headers: { 'X-Master-Key': getBinKey() }
-    });
-    if (!res.ok) throw new Error(`JSONBin read failed: ${res.status}`);
-    const json = await res.json();
-    return json.record;
+  // ── GitHub Gist API ──────────────────────────
+  function gistHeaders() {
+    return {
+      'Accept':        'application/vnd.github+json',
+      'Authorization': `Bearer ${getGistToken()}`,
+      'X-GitHub-Api-Version': '2022-11-28',
+      'Content-Type':  'application/json'
+    };
   }
 
-  async function binWrite(data) {
-    const res = await fetch(`${JSONBIN_BASE}/${getBinId()}`, {
-      method: 'PUT',
-      headers: binHeaders(),
-      body: JSON.stringify(data)
+  async function gistRead() {
+    const res = await fetch(`${GIST_API}/${getGistId()}`, {
+      headers: gistHeaders()
     });
-    if (!res.ok) throw new Error(`JSONBin write failed: ${res.status}`);
+    if (!res.ok) throw new Error(`Gist read failed: ${res.status} ${res.statusText}`);
+    const json = await res.json();
+    const raw  = json.files?.[GIST_FILE]?.content;
+    if (!raw) throw new Error('Gist file "nexus.json" not found in gist');
+    const parsed = JSON.parse(raw);
+    // If the gist is empty ({}) treat as uninitialized
+    if (!parsed || !parsed.users) return null;
+    return parsed;
+  }
+
+  async function gistWrite(data) {
+    const res = await fetch(`${GIST_API}/${getGistId()}`, {
+      method:  'PATCH',
+      headers: gistHeaders(),
+      body: JSON.stringify({
+        files: {
+          [GIST_FILE]: { content: JSON.stringify(data, null, 2) }
+        }
+      })
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`Gist write failed: ${res.status} — ${body}`);
+    }
     return res.json();
   }
 
   // ── Init / Load ──────────────────────────────
   async function init() {
-    if (isBinConfigured()) {
+    if (isConfigured()) {
       try {
         showSyncIndicator('syncing');
-        const remote = await binRead();
-        // Merge: remote is authoritative; if empty, push defaults
-        if (!remote || !remote.users) {
-          await binWrite(defaults);
+        const remote = await gistRead();
+        if (!remote) {
+          // First run — push seed data to Gist
+          await gistWrite(defaults);
           _cache = JSON.parse(JSON.stringify(defaults));
           lsWrite(_cache);
+          showSyncIndicator('ok');
         } else {
           _cache = remote;
-          lsWrite(_cache);  // mirror locally for offline fallback
+          lsWrite(_cache);   // mirror locally for offline fallback
+          showSyncIndicator('ok');
         }
-        showSyncIndicator('ok');
         return _cache;
       } catch (err) {
-        console.warn('JSONBin unreachable, using local cache', err);
+        console.warn('GitHub Gist unreachable, using local cache:', err.message);
         showSyncIndicator('error');
       }
+    } else {
+      showSyncIndicator('local');
     }
+
     // Fallback: localStorage
     const local = lsRead();
-    if (!local) { lsWrite(defaults); _cache = JSON.parse(JSON.stringify(defaults)); }
-    else { _cache = local; }
+    if (!local) {
+      lsWrite(defaults);
+      _cache = JSON.parse(JSON.stringify(defaults));
+    } else {
+      _cache = local;
+    }
     return _cache;
   }
 
-  // ── Sync to remote (debounced 800ms) ─────────
+  // ── Debounced push (800 ms after last write) ─
   function schedulePush() {
     localStorage.setItem(LS_DIRTY, '1');
     if (_syncTimer) clearTimeout(_syncTimer);
@@ -318,64 +353,167 @@ const Store = (() => {
   }
 
   async function pushToRemote() {
-    if (!isBinConfigured() || !_cache) return;
+    if (!isConfigured() || !_cache) return;
     try {
       showSyncIndicator('syncing');
-      await binWrite(_cache);
+      await gistWrite(_cache);
       localStorage.removeItem(LS_DIRTY);
       showSyncIndicator('ok');
     } catch (err) {
-      console.warn('JSONBin push failed', err);
+      console.warn('Gist push failed:', err.message);
       showSyncIndicator('error');
     }
   }
 
   // ── Sync indicator in header ─────────────────
   function showSyncIndicator(state) {
-    let el = document.getElementById('sync-indicator');
-    if (!el) return;  // not mounted yet
+    const el = document.getElementById('sync-indicator');
+    if (!el) return;
     const map = {
-      syncing: { text: '⟳ Syncing…',  color: 'var(--warn)',    title: 'Saving to cloud…' },
-      ok:      { text: '✓ Saved',      color: 'var(--success)', title: 'All changes saved to cloud' },
-      error:   { text: '⚠ Offline',   color: 'var(--danger)',  title: 'Cloud sync unavailable — saved locally' },
-      local:   { text: '◌ Local only', color: 'var(--text-3)',  title: 'No JSONBin configured — data in browser only' }
+      syncing: { text: '⟳ Syncing…',   color: 'var(--warn)',    title: 'Saving to GitHub Gist…' },
+      ok:      { text: '✓ Saved',       color: 'var(--success)', title: 'All changes saved to GitHub Gist' },
+      error:   { text: '⚠ Offline',    color: 'var(--danger)',  title: 'Gist sync unavailable — changes saved locally' },
+      local:   { text: '◌ Local only',  color: 'var(--text-3)',  title: 'No Gist configured — data stored in browser only' }
     };
     const s = map[state] || map.local;
-    el.textContent  = s.text;
-    el.style.color  = s.color;
-    el.title        = s.title;
+    el.textContent = s.text;
+    el.style.color = s.color;
+    el.title       = s.title;
   }
 
   // ── Public API ───────────────────────────────
   function get() {
     if (_cache) return _cache;
-    // Synchronous fallback for code that calls get() before init() resolves
     const local = lsRead();
     _cache = local || JSON.parse(JSON.stringify(defaults));
     return _cache;
   }
 
   function set(updater) {
-    const data = get();
-    const updated = updater(JSON.parse(JSON.stringify(data)));  // deep clone
+    const data    = get();
+    const updated = updater(JSON.parse(JSON.stringify(data)));
     _cache = updated;
-    lsWrite(updated);        // instant local write
-    schedulePush();          // async cloud push
+    lsWrite(updated);    // instant local write
+    schedulePush();      // async Gist push (debounced)
     return updated;
   }
 
   async function reset() {
     _cache = JSON.parse(JSON.stringify(defaults));
     lsWrite(_cache);
-    if (isBinConfigured()) await binWrite(_cache);
+    if (isConfigured()) await gistWrite(_cache);
     return _cache;
   }
 
-  // Expose init so app.js can await it before rendering
-  return { get, set, reset, init, defaults, isBinConfigured, showSyncIndicator };
+  // ── Settings UI helper ───────────────────────
+  // Call this to render a small connection form so users can configure the
+  // Gist credentials from inside the app (Settings page) without editing code.
+  function renderSettingsWidget(containerEl) {
+    if (!containerEl) return;
+    const connected = isConfigured();
+    containerEl.innerHTML = `
+      <div class="card" style="max-width:520px">
+        <div class="card-header" style="display:flex;align-items:center;gap:10px">
+          <span style="font-size:20px">⬡</span>
+          <div>
+            <div style="font-weight:700;font-size:15px">GitHub Gist Backend</div>
+            <div style="font-size:12px;color:var(--text-3)">Real-time cloud storage for all Nexus data</div>
+          </div>
+          <span id="gist-status-badge" style="margin-left:auto;font-size:11px;font-weight:700;padding:3px 10px;border-radius:99px;background:${connected ? 'var(--success-bg,#1a3a2a)' : 'var(--bg-hover)'};color:${connected ? 'var(--success)' : 'var(--text-3)'}">
+            ${connected ? '✓ Connected' : '◌ Not connected'}
+          </span>
+        </div>
+        <div class="card-body" style="display:flex;flex-direction:column;gap:12px;padding:18px">
+          <div class="form-group">
+            <label>Gist ID</label>
+            <input type="text" id="cfg-gist-id" placeholder="e.g. a1b2c3d4e5f6…" value="${getGistId()}"
+              style="font-family:monospace;font-size:13px">
+            <div style="font-size:11px;color:var(--text-3);margin-top:4px">
+              From the URL: gist.github.com/youruser/<strong>GIST_ID</strong>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Personal Access Token <span style="color:var(--text-3)">(gist scope)</span></label>
+            <input type="password" id="cfg-gist-token" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" value="${getGistToken()}"
+              style="font-family:monospace;font-size:13px">
+            <div style="font-size:11px;color:var(--text-3);margin-top:4px">
+              Generate at github.com/settings/tokens — only the <code>gist</code> scope needed
+            </div>
+          </div>
+          <div id="gist-cfg-msg" style="font-size:12px;min-height:16px"></div>
+          <div style="display:flex;gap:10px">
+            <button class="btn btn-primary" onclick="Store._saveGistConfig()">Save & Connect</button>
+            ${connected ? `<button class="btn btn-ghost" onclick="Store._testGistConnection()">Test Connection</button>` : ''}
+            ${connected ? `<button class="btn btn-ghost danger" onclick="Store._clearGistConfig()" style="margin-left:auto;color:var(--danger)">Disconnect</button>` : ''}
+          </div>
+        </div>
+      </div>`;
+  }
+
+  // Called by the Settings widget buttons (exposed on Store._*)
+  async function _saveGistConfig() {
+    const id    = document.getElementById('cfg-gist-id')?.value.trim();
+    const token = document.getElementById('cfg-gist-token')?.value.trim();
+    const msg   = document.getElementById('gist-cfg-msg');
+    if (!id || !token) { if (msg) msg.innerHTML = '<span style="color:var(--danger)">Both fields are required.</span>'; return; }
+    localStorage.setItem('nexus_gist_id', id);
+    localStorage.setItem('nexus_gist_token', token);
+    if (msg) msg.innerHTML = '<span style="color:var(--warn)">⟳ Testing connection…</span>';
+    try {
+      showSyncIndicator('syncing');
+      const remote = await gistRead();
+      if (!remote) {
+        await gistWrite(_cache || defaults);
+        if (_cache === null) _cache = JSON.parse(JSON.stringify(defaults));
+      } else {
+        _cache = remote;
+        lsWrite(_cache);
+      }
+      showSyncIndicator('ok');
+      if (msg) msg.innerHTML = '<span style="color:var(--success)">✓ Connected successfully! Data synced from Gist.</span>';
+      H.notify('GitHub Gist connected!', 'success');
+    } catch (err) {
+      showSyncIndicator('error');
+      if (msg) msg.innerHTML = `<span style="color:var(--danger)">✗ ${err.message}</span>`;
+      H.notify('Connection failed — check your Gist ID and Token', 'error');
+    }
+  }
+
+  async function _testGistConnection() {
+    const msg = document.getElementById('gist-cfg-msg');
+    try {
+      if (msg) msg.innerHTML = '<span style="color:var(--warn)">⟳ Testing…</span>';
+      showSyncIndicator('syncing');
+      await gistRead();
+      showSyncIndicator('ok');
+      if (msg) msg.innerHTML = '<span style="color:var(--success)">✓ Connection OK — Gist is reachable.</span>';
+      H.notify('Gist connection is healthy ✓', 'success');
+    } catch (err) {
+      showSyncIndicator('error');
+      if (msg) msg.innerHTML = `<span style="color:var(--danger)">✗ ${err.message}</span>`;
+    }
+  }
+
+  function _clearGistConfig() {
+    if (!confirm('Disconnect Gist? Data will only be saved locally until reconnected.')) return;
+    localStorage.removeItem('nexus_gist_id');
+    localStorage.removeItem('nexus_gist_token');
+    showSyncIndicator('local');
+    H.notify('Gist disconnected. Data saved locally.', 'info');
+    // Re-render widget
+    const el = document.querySelector('[data-gist-widget]');
+    if (el) renderSettingsWidget(el);
+  }
+
+  return {
+    get, set, reset, init,
+    defaults, isConfigured, showSyncIndicator,
+    renderSettingsWidget,
+    _saveGistConfig, _testGistConnection, _clearGistConfig
+  };
 })();
 
-// ─── Auth ───────────────────────────────────────
+// ─── Auth ────────────────────────────────────────────────────
 const Auth = (() => {
   const SESSION_KEY = 'nexus_session';
 
@@ -383,8 +521,7 @@ const Auth = (() => {
     const data = Store.get();
     const user = data.users.find(u => u.username === username && u.password === password && u.active);
     if (!user) return null;
-    const session = { userId: user.id, loginAt: new Date().toISOString() };
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ userId: user.id, loginAt: new Date().toISOString() }));
     return user;
   }
 
@@ -396,9 +533,8 @@ const Auth = (() => {
   function current() {
     const raw = sessionStorage.getItem(SESSION_KEY);
     if (!raw) return null;
-    const session = JSON.parse(raw);
-    const data = Store.get();
-    return data.users.find(u => u.id === session.userId) || null;
+    const { userId } = JSON.parse(raw);
+    return Store.get().users.find(u => u.id === userId) || null;
   }
 
   function requireAuth() {
@@ -410,8 +546,8 @@ const Auth = (() => {
   function can(user, action) {
     const perms = {
       super_admin: ['all'],
-      manager: ['create_task', 'create_project', 'view_org', 'manage_files', 'public_chat'],
-      employee: ['view_tasks', 'view_projects', 'view_org', 'view_files', 'private_chat']
+      manager:     ['create_task', 'create_project', 'view_org', 'manage_files', 'public_chat'],
+      employee:    ['view_tasks', 'view_projects', 'view_org', 'view_files', 'private_chat']
     };
     const p = perms[user.role] || [];
     return p.includes('all') || p.includes(action);
@@ -420,7 +556,7 @@ const Auth = (() => {
   return { login, logout, current, requireAuth, can };
 })();
 
-// ─── Helpers ─────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────
 const H = {
   uid: () => 'id_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
   fmt: (dateStr) => {
@@ -444,9 +580,7 @@ const H = {
     };
     return map[status] || 'badge-muted';
   },
-  priorityIcon: (p) => {
-    return { critical: '🔴', high: '🟠', medium: '🟡', low: '🟢' }[p] || '⚪';
-  },
+  priorityIcon: (p) => ({ critical: '🔴', high: '🟠', medium: '🟡', low: '🟢' }[p] || '⚪'),
   getUserById: (id) => Store.get().users.find(u => u.id === id),
   notify: (msg, type = 'info') => {
     const el = document.getElementById('toast-container');
