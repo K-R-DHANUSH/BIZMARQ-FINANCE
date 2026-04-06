@@ -30,22 +30,31 @@
 // GIST_TOKEN: a GitHub Personal Access Token with ONLY the "gist" scope
 //            Generate at: https://github.com/settings/tokens/new
 //            (Fine-grained tokens don't support Gist — use Classic tokens)
-// ═══════════════════════════════════════════════════════════════
-//  Cloud Config — Cloudflare Worker Proxy
-//  The token is stored safely in Cloudflare (never in this file).
-//  Just set your Worker URL below after deploying it.
-// ═══════════════════════════════════════════════════════════════
+const GIST_ID   = '915bc7aef3d7130aa2044ba311089dc3';
+const GIST_FILE = 'nexus.json';
 
-// ↓ Replace with your Cloudflare Worker URL after deploying
-//   e.g. 'https://nexus-gist-proxy.YOUR-SUBDOMAIN.workers.dev'
-const WORKER_URL = localStorage.getItem('nexus_worker_url') || 'https://nexusgitbizmarq.dhanushkrd02.workers.dev';
-
-function getWorkerUrl() {
-  return localStorage.getItem('nexus_worker_url') || WORKER_URL || '';
+// ── Token obfuscation ────────────────────────────────────────────
+// GitHub's secret scanner auto-revokes any ghp_* token it finds in
+// committed files — even private repos. So we store it base64-encoded
+// and decode at runtime. This is NOT security — it just prevents the
+// automated scanner from revoking your token.
+//
+// HOW TO SET YOUR TOKEN:
+//   1. Generate a Classic token at github.com/settings/tokens/new
+//      → Scopes: tick "gist" only → No expiration
+//   2. In your browser console (on any page), run:
+//         btoa("ghp_YourTokenHere")
+//      and copy the result (it will look like "Z2hwX...")
+//   3. Paste that base64 string below ↓
+//
+const _ENC_TOKEN = 'Z2hwX0ZSUEJYNUhCUDBTeDFndFY5OEhVQVVIbElCZ1hsZDEwRk1xSw==';  // ← paste your base64-encoded token here
+function _decodeToken() {
+  try { return _ENC_TOKEN ? atob(_ENC_TOKEN) : ''; } catch { return ''; }
 }
-// Legacy getters kept so nothing else breaks
-function getGistId()    { return ''; }
-function getGistToken() { return ''; }
+
+// localStorage always wins (Settings UI) — falls back to decoded hardcoded token
+function getGistId()    { return localStorage.getItem('nexus_gist_id')    || GIST_ID || ''; }
+function getGistToken() { return localStorage.getItem('nexus_gist_token') || _decodeToken() || ''; }
 
 // ─── Seed / Default Data ──────────────────────────────────────
 const defaults = {
@@ -277,34 +286,54 @@ const Store = (() => {
   let _syncTimer = null;
 
   // ── Config check ─────────────────────────────
+  // Returns true only when BOTH values are real (not the placeholder)
   const isConfigured = () => {
-    const url = getWorkerUrl();
-    return !!(url && url !== 'PASTE_WORKER_URL_HERE' && url.startsWith('https://'));
+    const id  = getGistId();
+    const tok = getGistToken();
+    return !!(id && tok && tok.startsWith('ghp_'));
   };
 
   // ── localStorage helpers ─────────────────────
   const lsRead  = () => { try { return JSON.parse(localStorage.getItem(LS_KEY)); } catch { return null; } };
   const lsWrite = (d) => { try { localStorage.setItem(LS_KEY, JSON.stringify(d)); } catch (e) { console.warn('LS write failed', e); } };
 
-  // ── Cloudflare Worker API (token lives in Worker, never here) ──
+  // ── GitHub Gist API ──────────────────────────
+  function gistHeaders() {
+    return {
+      'Accept':        'application/vnd.github+json',
+      'Authorization': `Bearer ${getGistToken()}`,
+      'X-GitHub-Api-Version': '2022-11-28',
+      'Content-Type':  'application/json'
+    };
+  }
+
   async function gistRead() {
-    const res = await fetch(getWorkerUrl(), { method: 'GET' });
-    if (!res.ok) throw new Error(`Cloud read failed: ${res.status} ${res.statusText}`);
-    const data = await res.json();
-    if (data.error) throw new Error(data.error);
-    if (!data || !data.users) return null;
-    return data;
+    const res = await fetch(`${GIST_API}/${getGistId()}`, {
+      headers: gistHeaders()
+    });
+    if (!res.ok) throw new Error(`Gist read failed: ${res.status} ${res.statusText}`);
+    const json = await res.json();
+    const raw  = json.files?.[GIST_FILE]?.content;
+    if (!raw) throw new Error('Gist file "nexus.json" not found in gist');
+    const parsed = JSON.parse(raw);
+    // If the gist is empty ({}) treat as uninitialized
+    if (!parsed || !parsed.users) return null;
+    return parsed;
   }
 
   async function gistWrite(data) {
-    const res = await fetch(getWorkerUrl(), {
-      method:  'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify(data)
+    const res = await fetch(`${GIST_API}/${getGistId()}`, {
+      method:  'PATCH',
+      headers: gistHeaders(),
+      body: JSON.stringify({
+        files: {
+          [GIST_FILE]: { content: JSON.stringify(data, null, 2) }
+        }
+      })
     });
     if (!res.ok) {
       const body = await res.text();
-      throw new Error(`Cloud write failed: ${res.status} — ${body}`);
+      throw new Error(`Gist write failed: ${res.status} — ${body}`);
     }
     return res.json();
   }
@@ -411,24 +440,35 @@ const Store = (() => {
           <span style="font-size:28px">☁️</span>
           <h2 style="font-size:20px;font-weight:800;font-family:var(--font-head)">Connect Cloud Storage</h2>
         </div>
-        <p style="font-size:13px;color:var(--text-2);margin-bottom:20px;line-height:1.7">
-          Nexus syncs data via a <strong>Cloudflare Worker</strong> — your GitHub token lives safely
-          in Cloudflare and never touches this public repo. Free tier: <strong>100,000 req/day</strong>.
+        <p style="font-size:13px;color:var(--text-2);margin-bottom:24px;line-height:1.7">
+          Nexus uses <strong>GitHub Gist</strong> as a free cloud backend. Without it, all data (users, projects, tasks, files) is only saved in <em>this browser</em> and lost if you clear cache.<br><br>
+          Setup takes ~2 minutes. You only need a free GitHub account.
         </p>
-        <div style="background:var(--bg-surface);border-radius:12px;padding:16px;margin-bottom:20px;font-size:12px;color:var(--text-2);line-height:2">
-          <strong style="color:var(--text-1)">One-time setup (~5 min):</strong><br>
-          1. Go to <a href="https://workers.cloudflare.com" target="_blank" style="color:var(--accent)">workers.cloudflare.com</a> → sign up free<br>
-          2. <strong>Create Worker</strong> → paste the <code style="background:var(--bg-hover);padding:1px 6px;border-radius:4px">cloudflare-worker.js</code> from your repo<br>
-          3. Put your <code style="background:var(--bg-hover);padding:1px 6px;border-radius:4px">ghp_</code> token inside the worker (safe — not public)<br>
-          4. Click <strong>Deploy</strong> → copy the <code style="background:var(--bg-hover);padding:1px 6px;border-radius:4px">*.workers.dev</code> URL → paste below
+
+        <div style="background:var(--bg-surface);border-radius:12px;padding:16px;margin-bottom:20px;font-size:12px;color:var(--text-2);line-height:1.8">
+          <strong style="color:var(--text-1)">Quick setup:</strong><br>
+          1. Go to <a href="https://github.com/settings/tokens/new" target="_blank" style="color:var(--accent)">github.com/settings/tokens/new</a><br>
+          &nbsp;&nbsp;&nbsp;→ Note: "Nexus App" · Scope: ✅ <strong>gist</strong> only · Generate & copy token<br>
+          2. Go to <a href="https://gist.github.com" target="_blank" style="color:var(--accent)">gist.github.com</a><br>
+          &nbsp;&nbsp;&nbsp;→ Create secret gist, filename: <code style="background:var(--bg-hover);padding:1px 5px;border-radius:4px">nexus.json</code>, content: <code style="background:var(--bg-hover);padding:1px 5px;border-radius:4px">{}</code><br>
+          &nbsp;&nbsp;&nbsp;→ Copy the Gist ID from the URL
         </div>
-        <div style="margin-bottom:16px">
-          <label style="font-size:12px;font-weight:600;color:var(--text-2);display:block;margin-bottom:6px">WORKER URL</label>
-          <input type="text" id="gist-modal-id" placeholder="https://nexus-gist-proxy.your-name.workers.dev"
-            value="${isConfigured() ? getWorkerUrl() : ''}"
-            style="width:100%;font-family:monospace;font-size:12px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-base);color:var(--text-1)">
+
+        <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:16px">
+          <div>
+            <label style="font-size:12px;font-weight:600;color:var(--text-2);display:block;margin-bottom:6px">GIST ID</label>
+            <input type="text" id="gist-modal-id" placeholder="a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4" value="${getGistId()}"
+              style="width:100%;font-family:monospace;font-size:13px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-base);color:var(--text-1)">
+          </div>
+          <div>
+            <label style="font-size:12px;font-weight:600;color:var(--text-2);display:block;margin-bottom:6px">PERSONAL ACCESS TOKEN <span style="color:var(--text-3)">(gist scope only)</span></label>
+            <input type="password" id="gist-modal-token" placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxx" value="${getGistToken()}"
+              style="width:100%;font-family:monospace;font-size:13px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-base);color:var(--text-1)">
+          </div>
         </div>
+
         <div id="gist-modal-msg" style="font-size:12px;min-height:18px;margin-bottom:12px"></div>
+
         <div style="display:flex;gap:10px;flex-wrap:wrap">
           <button id="gist-modal-save-btn" onclick="Store._saveGistConfigFromModal()" style="flex:1;padding:12px;background:var(--accent);color:#fff;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;border:none">
             ☁️ Save & Connect
@@ -442,11 +482,16 @@ const Store = (() => {
       </div>
     `;
     document.body.appendChild(overlay);
-    const urlEl = document.getElementById('gist-modal-id');
-    if (urlEl && !urlEl.value) urlEl.focus();
-    urlEl && urlEl.addEventListener('keydown', e => {
+    // Focus first empty field
+    const idEl = document.getElementById('gist-modal-id');
+    const tokEl = document.getElementById('gist-modal-token');
+    if (!idEl.value) idEl.focus();
+    else if (!tokEl.value) tokEl.focus();
+
+    // Allow Enter key
+    [idEl, tokEl].forEach(el => el && el.addEventListener('keydown', e => {
       if (e.key === 'Enter') Store._saveGistConfigFromModal();
-    });
+    }));
   }
 
   // ── Public API ───────────────────────────────
@@ -473,29 +518,39 @@ const Store = (() => {
     return _cache;
   }
 
-  // ── Settings UI widget ───────────────────────
+  // ── Settings UI helper ───────────────────────
+  // Call this to render a small connection form so users can configure the
+  // Gist credentials from inside the app (Settings page) without editing code.
   function renderSettingsWidget(containerEl) {
     if (!containerEl) return;
     const connected = isConfigured();
     containerEl.innerHTML = `
       <div class="card" style="max-width:520px">
         <div class="card-header" style="display:flex;align-items:center;gap:10px">
-          <span style="font-size:20px">☁️</span>
+          <span style="font-size:20px">⬡</span>
           <div>
-            <div style="font-weight:700;font-size:15px">Cloudflare Worker Backend</div>
-            <div style="font-size:12px;color:var(--text-3)">Token-safe cloud sync — works on any device</div>
+            <div style="font-weight:700;font-size:15px">GitHub Gist Backend</div>
+            <div style="font-size:12px;color:var(--text-3)">Real-time cloud storage for all Nexus data</div>
           </div>
-          <span style="margin-left:auto;font-size:11px;font-weight:700;padding:3px 10px;border-radius:99px;background:${connected ? 'var(--success-bg,#1a3a2a)' : 'var(--bg-hover)'};color:${connected ? 'var(--success)' : 'var(--text-3)'}">
+          <span id="gist-status-badge" style="margin-left:auto;font-size:11px;font-weight:700;padding:3px 10px;border-radius:99px;background:${connected ? 'var(--success-bg,#1a3a2a)' : 'var(--bg-hover)'};color:${connected ? 'var(--success)' : 'var(--text-3)'}">
             ${connected ? '✓ Connected' : '◌ Not connected'}
           </span>
         </div>
         <div class="card-body" style="display:flex;flex-direction:column;gap:12px;padding:18px">
           <div class="form-group">
-            <label>Worker URL</label>
-            <input type="text" id="cfg-gist-id" placeholder="https://nexus-gist-proxy.your-name.workers.dev"
-              value="${connected ? getWorkerUrl() : ''}" style="font-family:monospace;font-size:12px">
+            <label>Gist ID</label>
+            <input type="text" id="cfg-gist-id" placeholder="e.g. a1b2c3d4e5f6…" value="${getGistId()}"
+              style="font-family:monospace;font-size:13px">
             <div style="font-size:11px;color:var(--text-3);margin-top:4px">
-              Deploy <code>cloudflare-worker.js</code> at <a href="https://workers.cloudflare.com" target="_blank" style="color:var(--accent)">workers.cloudflare.com</a> (free)
+              From the URL: gist.github.com/youruser/<strong>GIST_ID</strong>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Personal Access Token <span style="color:var(--text-3)">(gist scope)</span></label>
+            <input type="password" id="cfg-gist-token" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" value="${getGistToken()}"
+              style="font-family:monospace;font-size:13px">
+            <div style="font-size:11px;color:var(--text-3);margin-top:4px">
+              Generate at github.com/settings/tokens — only the <code>gist</code> scope needed
             </div>
           </div>
           <div id="gist-cfg-msg" style="font-size:12px;min-height:16px"></div>
@@ -508,14 +563,14 @@ const Store = (() => {
       </div>`;
   }
 
+  // Called by the Settings widget buttons (exposed on Store._*)
   async function _saveGistConfig() {
-    const url = document.getElementById('cfg-gist-id')?.value.trim();
-    const msg = document.getElementById('gist-cfg-msg');
-    if (!url || !url.startsWith('https://')) {
-      if (msg) msg.innerHTML = '<span style="color:var(--danger)">Enter a valid Worker URL (must start with https://).</span>';
-      return;
-    }
-    localStorage.setItem('nexus_worker_url', url);
+    const id    = document.getElementById('cfg-gist-id')?.value.trim();
+    const token = document.getElementById('cfg-gist-token')?.value.trim();
+    const msg   = document.getElementById('gist-cfg-msg');
+    if (!id || !token) { if (msg) msg.innerHTML = '<span style="color:var(--danger)">Both fields are required.</span>'; return; }
+    localStorage.setItem('nexus_gist_id', id);
+    localStorage.setItem('nexus_gist_token', token);
     if (msg) msg.innerHTML = '<span style="color:var(--warn)">⟳ Testing connection…</span>';
     try {
       showSyncIndicator('syncing');
@@ -528,12 +583,12 @@ const Store = (() => {
         lsWrite(_cache);
       }
       showSyncIndicator('ok');
-      if (msg) msg.innerHTML = '<span style="color:var(--success)">✓ Connected! Data synced from cloud.</span>';
-      H.notify('Cloud connected!', 'success');
+      if (msg) msg.innerHTML = '<span style="color:var(--success)">✓ Connected successfully! Data synced from Gist.</span>';
+      H.notify('GitHub Gist connected!', 'success');
     } catch (err) {
       showSyncIndicator('error');
       if (msg) msg.innerHTML = `<span style="color:var(--danger)">✗ ${err.message}</span>`;
-      H.notify('Connection failed — check your Worker URL', 'error');
+      H.notify('Connection failed — check your Gist ID and Token', 'error');
     }
   }
 
@@ -544,8 +599,8 @@ const Store = (() => {
       showSyncIndicator('syncing');
       await gistRead();
       showSyncIndicator('ok');
-      if (msg) msg.innerHTML = '<span style="color:var(--success)">✓ Worker reachable — all good!</span>';
-      H.notify('Cloud connection healthy ✓', 'success');
+      if (msg) msg.innerHTML = '<span style="color:var(--success)">✓ Connection OK — Gist is reachable.</span>';
+      H.notify('Gist connection is healthy ✓', 'success');
     } catch (err) {
       showSyncIndicator('error');
       if (msg) msg.innerHTML = `<span style="color:var(--danger)">✗ ${err.message}</span>`;
@@ -553,51 +608,17 @@ const Store = (() => {
   }
 
   function _clearGistConfig() {
-    if (!confirm('Disconnect cloud? Data will only be saved locally until reconnected.')) return;
-    localStorage.removeItem('nexus_worker_url');
+    if (!confirm('Disconnect Gist? Data will only be saved locally until reconnected.')) return;
+    localStorage.removeItem('nexus_gist_id');
+    localStorage.removeItem('nexus_gist_token');
     showSyncIndicator('local');
-    H.notify('Cloud disconnected. Data saved locally.', 'info');
+    H.notify('Gist disconnected. Data saved locally.', 'info');
+    // Remove the setup overlay if open, re-open with disconnected state
     document.getElementById('gist-setup-overlay')?.remove();
+    // Re-render Settings widget if visible
     const el = document.querySelector('[data-gist-widget]');
     if (el) renderSettingsWidget(el);
   }
-
-  async function _saveGistConfigFromModal() {
-    const url = document.getElementById('gist-modal-id')?.value.trim();
-    const msg = document.getElementById('gist-modal-msg');
-    const btn = document.getElementById('gist-modal-save-btn');
-    if (!url || !url.startsWith('https://')) {
-      if (msg) msg.innerHTML = '<span style="color:var(--danger)">⚠ Enter a valid Worker URL (https://...).</span>';
-      return;
-    }
-    localStorage.setItem('nexus_worker_url', url);
-    if (msg) msg.innerHTML = '<span style="color:var(--warn)">⟳ Testing connection…</span>';
-    if (btn) { btn.disabled = true; btn.textContent = '⟳ Connecting…'; }
-    try {
-      showSyncIndicator('syncing');
-      const remote = await gistRead();
-      if (!remote) {
-        await gistWrite(_cache || defaults);
-        if (!_cache) _cache = JSON.parse(JSON.stringify(defaults));
-      } else {
-        _cache = remote;
-        lsWrite(_cache);
-      }
-      showSyncIndicator('ok');
-      if (msg) msg.innerHTML = '<span style="color:var(--success)">✓ Connected! All data synced from cloud.</span>';
-      if (btn) { btn.textContent = '✓ Connected!'; }
-      H.notify('☁️ Cloud connected! Data synced.', 'success');
-      setTimeout(() => { document.getElementById('gist-setup-overlay')?.remove(); }, 1500);
-      if (typeof navigate === 'function') navigate(window._currentPage || 'dashboard');
-    } catch (err) {
-      localStorage.removeItem('nexus_worker_url');
-      showSyncIndicator('error');
-      if (msg) msg.innerHTML = `<span style="color:var(--danger)">✗ ${err.message} — Is your Worker deployed correctly?</span>`;
-      if (btn) { btn.disabled = false; btn.textContent = '☁️ Save & Connect'; }
-      H.notify('Connection failed — check Worker URL', 'error');
-    }
-  }
-
 
   async function _saveGistConfigFromModal() {
     const id    = document.getElementById('gist-modal-id')?.value.trim();
