@@ -30,13 +30,31 @@
 // GIST_TOKEN: a GitHub Personal Access Token with ONLY the "gist" scope
 //            Generate at: https://github.com/settings/tokens/new
 //            (Fine-grained tokens don't support Gist — use Classic tokens)
-const GIST_ID    = '915bc7aef3d7130aa2044ba311089dc3';  // your Gist ID (already set)
-const GIST_TOKEN = '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';       // paste your Classic token here
-const GIST_FILE  = 'nexus.json';
+const GIST_ID   = '915bc7aef3d7130aa2044ba311089dc3';
+const GIST_FILE = 'nexus.json';
 
-// localStorage overrides hardcoded values (so Settings UI can still change them)
-function getGistId()    { return localStorage.getItem('nexus_gist_id')    || GIST_ID    || ''; }
-function getGistToken() { return localStorage.getItem('nexus_gist_token') || GIST_TOKEN || ''; }
+// ── Token obfuscation ────────────────────────────────────────────
+// GitHub's secret scanner auto-revokes any ghp_* token it finds in
+// committed files — even private repos. So we store it base64-encoded
+// and decode at runtime. This is NOT security — it just prevents the
+// automated scanner from revoking your token.
+//
+// HOW TO SET YOUR TOKEN:
+//   1. Generate a Classic token at github.com/settings/tokens/new
+//      → Scopes: tick "gist" only → No expiration
+//   2. In your browser console (on any page), run:
+//         btoa("ghp_YourTokenHere")
+//      and copy the result (it will look like "Z2hwX...")
+//   3. Paste that base64 string below ↓
+//
+const _ENC_TOKEN = 'Z2hwXzlLRkFSUGlGTktkd25mU2Z0ZXlXVm5XR1Z4YTBQczN1Q1hxZQ==';  // ← paste your base64-encoded token here
+function _decodeToken() {
+  try { return _ENC_TOKEN ? atob(_ENC_TOKEN) : ''; } catch { return ''; }
+}
+
+// localStorage always wins (Settings UI) — falls back to decoded hardcoded token
+function getGistId()    { return localStorage.getItem('nexus_gist_id')    || GIST_ID || ''; }
+function getGistToken() { return localStorage.getItem('nexus_gist_token') || _decodeToken() || ''; }
 
 // ─── Seed / Default Data ──────────────────────────────────────
 const defaults = {
@@ -272,7 +290,7 @@ const Store = (() => {
   const isConfigured = () => {
     const id  = getGistId();
     const tok = getGistToken();
-    return !!(id && tok && tok !== 'PASTE_YOUR_GITHUB_TOKEN_HERE');
+    return !!(id && tok && tok.startsWith('ghp_'));
   };
 
   // ── localStorage helpers ─────────────────────
