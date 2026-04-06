@@ -2514,7 +2514,6 @@ function renderSettings() {
             <div class="settings-nav-item" onclick="switchSettingsTab(this,'s-skills')">⚡ Skills & Expertise</div>
             <div class="settings-nav-item" onclick="switchSettingsTab(this,'s-career')">📈 Career Details</div>
             <div class="settings-nav-item" onclick="switchSettingsTab(this,'s-security')">🔒 Security</div>
-            ${currentUser.role === 'super_admin' ? `<div class="settings-nav-item" onclick="switchSettingsTab(this,'s-cloud')">☁️ Cloud Storage</div>` : ''}
           </div>
         </div>
       </div>
@@ -2672,58 +2671,12 @@ function renderSettings() {
           </div>
         </div>
 
-        <!-- Cloud Storage (super admin only) -->
-        ${currentUser.role === 'super_admin' ? `
-        <div id="s-cloud" class="settings-section">
-          <div class="card">
-            <span class="settings-label">GitHub Gist — Real-time Backend</span>
-            <p style="font-size:13px;color:var(--text-2);line-height:1.7;margin-bottom:20px">
-              All Nexus data (users, projects, tasks, messages) is synced to a private GitHub Gist.
-              Every change is pushed within ~1 second. Any browser that connects with the same Gist ID
-              sees live data instantly — no server, no database, no cost.
-            </p>
 
-            <!-- How-to guide -->
-            <details style="margin-bottom:20px;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden">
-              <summary style="padding:12px 16px;cursor:pointer;font-size:13px;font-weight:600;background:var(--bg-base);user-select:none">
-                📋 How to set up (2 minutes)
-              </summary>
-              <ol style="font-size:12px;color:var(--text-2);line-height:2.4;padding:14px 14px 14px 32px;margin:0;background:var(--bg-base)">
-                <li>Go to <a href="https://github.com/settings/tokens/new" target="_blank" style="color:var(--accent)">github.com/settings/tokens/new</a></li>
-                <li>Note: <strong>Nexus App</strong> · Expiration: <em>No expiration</em> · Scope: tick <strong>gist</strong> only → Generate</li>
-                <li>Copy the token (starts with <code style="background:var(--bg-hover);padding:1px 5px;border-radius:3px">ghp_</code>)</li>
-                <li>Go to <a href="https://gist.github.com" target="_blank" style="color:var(--accent)">gist.github.com</a> → New gist</li>
-                <li>Filename: <code style="background:var(--bg-hover);padding:1px 5px;border-radius:3px">nexus.json</code> · Content: <code style="background:var(--bg-hover);padding:1px 5px;border-radius:3px">{}</code> → Create <strong>secret</strong> gist</li>
-                <li>Copy the Gist ID from the URL (the long hash after your username)</li>
-                <li>Paste both below and click <strong>Save &amp; Connect</strong></li>
-              </ol>
-            </details>
-
-            <div data-gist-widget></div>
-          </div>
-
-          <!-- Danger zone -->
-          <div class="card" style="margin-top:16px;border-color:var(--danger-muted,#3a1a1a)">
-            <span class="settings-label" style="color:var(--danger)">Danger Zone</span>
-            <p style="font-size:13px;color:var(--text-2);margin-bottom:14px">
-              Reset all data back to factory defaults. This will overwrite both local storage and the connected Gist — <strong>irreversible</strong>.
-            </p>
-            <button class="btn btn-ghost" style="color:var(--danger);border-color:var(--danger)"
-              onclick="if(confirm('Reset ALL data to defaults? This cannot be undone.'))Store.reset().then(()=>{H.notify('Data reset to defaults','info');setTimeout(()=>window.location.reload(),800)})">
-              ⚠ Reset to Factory Defaults
-            </button>
-          </div>
-        </div>
-        ` : ''}
       </div>
     </div>
   `;
 
-  // Render the Gist widget after DOM is set
-  if (currentUser.role === 'super_admin') {
-    const widgetEl = document.querySelector('[data-gist-widget]');
-    if (widgetEl) Store.renderSettingsWidget(widgetEl);
-  }
+
 }
 
 function switchSettingsTab(btn, sectionId) {
