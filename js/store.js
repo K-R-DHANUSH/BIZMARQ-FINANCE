@@ -1,12 +1,12 @@
 // ═══════════════════════════════════════════════════════════════
-//  NEXUS — Central Data Store (FINAL FIXED VERSION)
+//  NEXUS — Central Data Store (FINAL STABLE)
 //  Backend: Cloudflare Worker → GitHub Gist
 // ═══════════════════════════════════════════════════════════════
 
-// ✅ Worker URL (YOUR BACKEND)
+// ✅ Your Worker URL
 const WORKER_URL = 'https://gitnexus.dhanushkrd02.workers.dev';
 
-// ─── Seed / Default Data ──────────────────────────────────────
+// ─── Default Data ─────────────────────────────────────────────
 const defaults = {
   users: [],
   projects: [],
@@ -22,24 +22,27 @@ const defaults = {
 };
 
 // ═══════════════════════════════════════════════════════════════
-//  Store — Worker-based backend (NO TOKENS IN FRONTEND)
+//  Store — Worker-based backend
 // ═══════════════════════════════════════════════════════════════
 const Store = (() => {
-  const LS_KEY   = 'nexus_data';
-  const LS_DIRTY = 'nexus_dirty';
+  const LS_KEY = 'nexus_data';
 
-  let _cache     = null;
+  let _cache = null;
   let _syncTimer = null;
 
-  // ── localStorage helpers ─────────────────────
-  const lsRead  = () => { try { return JSON.parse(localStorage.getItem(LS_KEY)); } catch { return null; } };
-  const lsWrite = (d) => { try { localStorage.setItem(LS_KEY, JSON.stringify(d)); } catch (e) { console.warn('LS write failed', e); } };
+  const lsRead = () => {
+    try { return JSON.parse(localStorage.getItem(LS_KEY)); }
+    catch { return null; }
+  };
 
-  // ─────────────────────────────────────────────
-  // 🔵 READ FROM WORKER
-  // ─────────────────────────────────────────────
+  const lsWrite = (d) => {
+    try { localStorage.setItem(LS_KEY, JSON.stringify(d)); }
+    catch (e) { console.warn('LS write failed', e); }
+  };
+
+  // 🔵 READ
   async function fetchData() {
-    const res = await fetch(WORKER_URL, { method: 'GET' });
+    const res = await fetch(WORKER_URL);
 
     if (!res.ok) {
       const err = await res.text();
@@ -49,9 +52,7 @@ const Store = (() => {
     return res.json();
   }
 
-  // ─────────────────────────────────────────────
-  // 🟢 WRITE TO WORKER
-  // ─────────────────────────────────────────────
+  // 🟢 WRITE
   async function saveData(data) {
     const res = await fetch(WORKER_URL, {
       method: 'PUT',
@@ -67,7 +68,7 @@ const Store = (() => {
     return res.json();
   }
 
-  // ── Init ─────────────────────────────────────
+  // INIT
   async function init() {
     try {
       showSyncIndicator('syncing');
@@ -86,7 +87,7 @@ const Store = (() => {
       return _cache;
 
     } catch (err) {
-      console.warn('Worker error:', err.message);
+      console.warn(err.message);
       showSyncIndicator('error');
 
       const local = lsRead();
@@ -101,36 +102,34 @@ const Store = (() => {
     }
   }
 
-  // ── Debounced sync ───────────────────────────
+  // AUTO SYNC
   function schedulePush() {
-    localStorage.setItem(LS_DIRTY, '1');
     if (_syncTimer) clearTimeout(_syncTimer);
-    _syncTimer = setTimeout(pushToRemote, 800);
+    _syncTimer = setTimeout(push, 800);
   }
 
-  async function pushToRemote() {
+  async function push() {
     if (!_cache) return;
 
     try {
       showSyncIndicator('syncing');
       await saveData(_cache);
-      localStorage.removeItem(LS_DIRTY);
       showSyncIndicator('ok');
-    } catch (err) {
-      console.warn('Push failed:', err.message);
+    } catch (e) {
+      console.warn(e.message);
       showSyncIndicator('error');
     }
   }
 
-  // ── Indicator UI ─────────────────────────────
+  // INDICATOR
   function showSyncIndicator(state) {
     const el = document.getElementById('sync-indicator');
     if (!el) return;
 
     const map = {
       syncing: { text: '⟳ Syncing…', color: 'orange' },
-      ok:      { text: '✓ Cloud Synced', color: 'green' },
-      error:   { text: '⚠ Sync Error', color: 'red' }
+      ok:      { text: '✓ Synced', color: 'green' },
+      error:   { text: '⚠ Error', color: 'red' }
     };
 
     const s = map[state];
@@ -140,7 +139,7 @@ const Store = (() => {
     el.style.color = s.color;
   }
 
-  // ── Public API ───────────────────────────────
+  // PUBLIC API
   function get() {
     if (_cache) return _cache;
     const local = lsRead();
@@ -149,7 +148,7 @@ const Store = (() => {
   }
 
   function set(updater) {
-    const data    = get();
+    const data = get();
     const updated = updater(JSON.parse(JSON.stringify(data)));
     _cache = updated;
     lsWrite(updated);
@@ -169,32 +168,33 @@ const Store = (() => {
 
 // ─── Auth ─────────────────────────────────────
 const Auth = (() => {
-  const SESSION_KEY = 'nexus_session';
+  const KEY = 'nexus_session';
 
   function login(username, password) {
-    const data = Store.get();
-    const user = data.users.find(u => u.username === username && u.password === password && u.active);
+    const user = Store.get().users.find(
+      u => u.username === username && u.password === password && u.active
+    );
+
     if (!user) return null;
 
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify({
-      userId: user.id,
-      loginAt: new Date().toISOString()
+    sessionStorage.setItem(KEY, JSON.stringify({
+      userId: user.id
     }));
 
     return user;
   }
 
   function logout() {
-    sessionStorage.removeItem(SESSION_KEY);
+    sessionStorage.removeItem(KEY);
     window.location.href = 'index.html';
   }
 
   function current() {
-    const raw = sessionStorage.getItem(SESSION_KEY);
+    const raw = sessionStorage.getItem(KEY);
     if (!raw) return null;
 
     const { userId } = JSON.parse(raw);
-    return Store.get().users.find(u => u.id === userId) || null;
+    return Store.get().users.find(u => u.id === userId);
   }
 
   function requireAuth() {
@@ -208,3 +208,28 @@ const Auth = (() => {
 
   return { login, logout, current, requireAuth };
 })();
+
+// ─── Helper (FIXES YOUR ERROR) ─────────────────
+const H = {
+  notify: (msg, type = 'info') => {
+    const container = document.getElementById('toast-container');
+
+    if (!container) {
+      console.log(`[${type}]`, msg);
+      return;
+    }
+
+    const t = document.createElement('div');
+    t.className = `toast toast-${type}`;
+    t.textContent = msg;
+
+    container.appendChild(t);
+
+    setTimeout(() => t.classList.add('show'), 10);
+
+    setTimeout(() => {
+      t.classList.remove('show');
+      setTimeout(() => t.remove(), 400);
+    }, 3000);
+  }
+};
