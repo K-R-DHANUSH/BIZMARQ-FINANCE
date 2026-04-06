@@ -23,13 +23,20 @@
 //  │  3. Paste both values below ↓                              │
 //  └────────────────────────────────────────────────────────────┘
 
-const GIST_ID    = '915bc7aef3d7130aa2044ba311089dc3';   // Leave blank — users configure via the cloud setup modal
-const GIST_TOKEN = '';   // Leave blank — users configure via the cloud setup modal
+// ─── Cloud Config ─────────────────────────────────────────────
+// Paste your values here — works across ALL devices automatically.
+// GIST_ID  : the long hex ID from your gist URL
+//            e.g. https://gist.github.com/youruser/PASTE_THIS_PART
+// GIST_TOKEN: a GitHub Personal Access Token with ONLY the "gist" scope
+//            Generate at: https://github.com/settings/tokens/new
+//            (Fine-grained tokens don't support Gist — use Classic tokens)
+const GIST_ID    = '915bc7aef3d7130aa2044ba311089dc3';  // your Gist ID (already set)
+const GIST_TOKEN = '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';       // paste your Classic token here
 const GIST_FILE  = 'nexus.json';
 
-// Read from localStorage if not hardcoded above — lets users connect via the UI
-function getGistId()    { return GIST_ID    || localStorage.getItem('nexus_gist_id')    || ''; }
-function getGistToken() { return GIST_TOKEN || localStorage.getItem('nexus_gist_token') || ''; }
+// localStorage overrides hardcoded values (so Settings UI can still change them)
+function getGistId()    { return localStorage.getItem('nexus_gist_id')    || GIST_ID    || ''; }
+function getGistToken() { return localStorage.getItem('nexus_gist_token') || GIST_TOKEN || ''; }
 
 // ─── Seed / Default Data ──────────────────────────────────────
 const defaults = {
