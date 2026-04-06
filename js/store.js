@@ -268,7 +268,12 @@ const Store = (() => {
   let _syncTimer = null;
 
   // ── Config check ─────────────────────────────
-  const isConfigured = () => !!(getGistId() && getGistToken());
+  // Returns true only when BOTH values are real (not the placeholder)
+  const isConfigured = () => {
+    const id  = getGistId();
+    const tok = getGistToken();
+    return !!(id && tok && tok !== 'PASTE_YOUR_GITHUB_TOKEN_HERE');
+  };
 
   // ── localStorage helpers ─────────────────────
   const lsRead  = () => { try { return JSON.parse(localStorage.getItem(LS_KEY)); } catch { return null; } };
@@ -322,26 +327,30 @@ const Store = (() => {
         showSyncIndicator('syncing');
         const remote = await gistRead();
         if (!remote) {
-          // First run — push seed data to Gist
+          // Gist is empty — first run, push seed data up
           await gistWrite(defaults);
           _cache = JSON.parse(JSON.stringify(defaults));
           lsWrite(_cache);
-          showSyncIndicator('ok');
         } else {
+          // ✅ Got real data from Gist — always use it as source of truth,
+          //    completely ignoring whatever is in localStorage
           _cache = remote;
-          lsWrite(_cache);   // mirror locally for offline fallback
-          showSyncIndicator('ok');
+          lsWrite(_cache);
         }
+        showSyncIndicator('ok');
         return _cache;
       } catch (err) {
-        console.warn('GitHub Gist unreachable, using local cache:', err.message);
+        console.warn('GitHub Gist error:', err.message);
         showSyncIndicator('error');
+        // Don't silently fall back to stale localStorage —
+        // surface the error so the user knows data may be out of date
+        H.notify('⚠ Could not reach Gist — showing cached data. Check your token.', 'error');
       }
     } else {
       showSyncIndicator('local');
     }
 
-    // Fallback: localStorage
+    // Fallback: localStorage (only reached if Gist is unconfigured or failed)
     const local = lsRead();
     if (!local) {
       lsWrite(defaults);
