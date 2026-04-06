@@ -6,8 +6,9 @@
 
 const GIST_ID    = '915bc7aef3d7130aa2044ba311089dc3';
 const GIST_FILE  = 'nexus.json';
-// ↓ Paste your ghp_ token here — this file stays only in Cloudflare
-const GIST_TOKEN = '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';
+// Token is stored as a Cloudflare Secret (env.GIST_TOKEN), never hardcoded here.
+// In Cloudflare dashboard: Worker → Settings → Variables and Secrets → Add Secret
+// Name: GIST_TOKEN   Value: ghp_yourtoken   → Save → Redeploy
 
 const GIST_API   = `https://api.github.com/gists/${GIST_ID}`;
 const ALLOWED_ORIGIN = 'https://k-r-dhanush.github.io'; // your GitHub Pages URL
@@ -27,9 +28,17 @@ export default {
       return new Response('Forbidden', { status: 403 });
     }
 
+    const token = env.GIST_TOKEN;
+    if (!token) {
+      return new Response(JSON.stringify({ error: 'GIST_TOKEN secret not configured in Cloudflare Worker settings' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders(request) }
+      });
+    }
+
     const gistHeaders = {
       'Accept':               'application/vnd.github+json',
-      'Authorization':        `Bearer ${GIST_TOKEN}`,
+      'Authorization':        `Bearer ${token}`,
       'X-GitHub-Api-Version': '2022-11-28',
       'User-Agent':           'Nexus-App',
       'Content-Type':         'application/json'
