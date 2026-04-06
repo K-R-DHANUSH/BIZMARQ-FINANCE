@@ -86,7 +86,8 @@
     const _t = localStorage.getItem('nexus_theme') || 'light';
     document.documentElement.setAttribute('data-theme', _t);
 
-    Store.get();
+    // Pre-fetch latest data from Gist so login always checks live credentials
+    Store.init().catch(() => {});
 
     function toggleHint(btn) {
       const body = document.getElementById('demo-hint-body');
@@ -94,10 +95,18 @@
       btn.textContent = isOpen ? 'Hide' : 'Show';
     }
 
-    function doLogin() {
+    async function doLogin() {
       const username = document.getElementById('username').value.trim();
       const password = document.getElementById('password').value;
       if (!username || !password) { H.notify('Enter credentials', 'error'); return; }
+
+      const btn = document.querySelector('.login-btn');
+      btn.textContent = 'Signing in…';
+      btn.disabled = true;
+
+      // Always pull latest data from Gist before checking credentials
+      try { await Store.init(); } catch(e) {}
+
       const user = Auth.login(username, password);
       if (user) {
         H.notify(`Welcome, ${user.name.split(' ')[0]}!`, 'success');
@@ -106,6 +115,8 @@
         H.notify('Invalid username or password', 'error');
         document.getElementById('password').value = '';
         document.getElementById('password').focus();
+        btn.textContent = 'Sign In →';
+        btn.disabled = false;
       }
     }
   </script>
