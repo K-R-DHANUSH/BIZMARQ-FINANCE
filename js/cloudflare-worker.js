@@ -7,7 +7,7 @@
 const GIST_ID    = '915bc7aef3d7130aa2044ba311089dc3';
 const GIST_FILE  = 'nexus.json';
 // ↓ Paste your ghp_ token here — this file stays only in Cloudflare
-const GIST_TOKEN = 'PASTE_YOUR_TOKEN_HERE';
+const GIST_TOKEN = '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';
 
 const GIST_API   = `https://api.github.com/gists/${GIST_ID}`;
 const ALLOWED_ORIGIN = 'https://k-r-dhanush.github.io'; // your GitHub Pages URL
