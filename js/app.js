@@ -2307,6 +2307,8 @@ function submitEditTask(taskId) {
 }
 
 
+// ─── User Management Page ─────────────────────
+function renderUsers() {
   if (currentUser.role !== 'super_admin') { navigate('dashboard'); return; }
   const data = Store.get();
   const container = document.getElementById('users-content');
