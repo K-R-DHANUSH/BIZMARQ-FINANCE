@@ -47,7 +47,7 @@ const GIST_FILE = 'nexus.json';
 //      and copy the result (it will look like "Z2hwX...")
 //   3. Paste that base64 string below ↓
 //
-const _ENC_TOKEN = 'Z2hwX1BuYmJ1dFN2OWxVNnFZaFYwakVCT1FySXk2YVc0VDN3dUlmYQ==';  // ← paste your base64-encoded token here
+const _ENC_TOKEN = 'Z2hwX3V0dXVUNlFoSFlFN2RYRHowclJGVmxwSzU2cFhmRzE0RkRIZg==';  // ← paste your base64-encoded token here
 function _decodeToken() {
   try { return _ENC_TOKEN ? atob(_ENC_TOKEN) : ''; } catch { return ''; }
 }
