@@ -94,7 +94,8 @@ function buildNavItems() {
     { label: 'Workspace', items: [
       { page: 'calendar', icon: '◷', name: 'Calendar' },
       { page: 'files', icon: '◱', name: 'File Storage' },
-      { page: 'chat', icon: '◉', name: 'Chat' }
+      { page: 'chat', icon: '◉', name: 'Chat' },
+      { page: 'workspace', icon: '◧', name: 'Workspace' }
     ]}
   ];
   if (Auth.can(currentUser, 'create_task')) {
@@ -136,7 +137,8 @@ function navigate(page) {
     'task-create': renderTaskCreate,
     'project-create': renderProjectCreate,
     'users': renderUsers,
-    'settings': renderSettings
+    'settings': renderSettings,
+    'workspace': renderWorkspace
   };
   if (renders[page]) renders[page]();
 }
@@ -3075,3 +3077,827 @@ document.addEventListener('click', (e) => {
     document.getElementById('user-menu')?.classList.remove('open');
   }
 });
+
+
+// ═══════════════════════════════════════════════
+//  NEXUS — Workspace Module
+//  Notes · Mind Maps · Flowcharts
+//  Private (owner only) or Public (all users)
+//
+//  HOW TO INTEGRATE:
+//  1. Append this entire file's content to the bottom of js/app.js
+//  2. Add the page div from workspace-html-snippet.html into app.html
+//  3. Append workspace-addition.css content to css/main.css
+//  4. In buildNavItems() inside app.js, add to the 'Workspace' group:
+//       { page: 'workspace', icon: '◧', name: 'Workspace' }
+//  5. In the navigate() renders object, add:
+//       'workspace': renderWorkspace
+//  6. In store.js defaults object, add:  wsDocs: []
+// ═══════════════════════════════════════════════
+
+// ─── Store helpers for wsDocs ─────────────────
+function wsGetDocs() {
+  const data = Store.get();
+  return data.wsDocs || [];
+}
+
+function wsSaveDocs(fn) {
+  Store.set(data => {
+    if (!data.wsDocs) data.wsDocs = [];
+    fn(data.wsDocs);
+    return data;
+  });
+}
+
+// Visible docs: own private docs + all public docs
+function wsVisibleDocs() {
+  return wsGetDocs().filter(d =>
+    d.visibility === 'public' || d.ownerId === currentUser.id
+  );
+}
+
+// ─── Active doc state ─────────────────────────
+let _wsActiveDocId = null;
+let _wsUnsaved = false;
+// For flowchart: track nodes/edges in memory while editing
+let _flowState = { nodes: [], edges: [], dragging: null, connecting: null, selected: null, nextId: 1 };
+
+// ─── Render page ─────────────────────────────
+function renderWorkspace() {
+  const docs = wsVisibleDocs();
+  const container = document.getElementById('workspace-content');
+
+  const noteDocs  = docs.filter(d => d.type === 'note');
+  const mindDocs  = docs.filter(d => d.type === 'mindmap');
+  const flowDocs  = docs.filter(d => d.type === 'flowchart');
+
+  function sidebarSection(label, list, icon) {
+    if (!list.length) return `
+      <div style="padding:6px 10px 2px;font-size:11px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--text-3);margin-top:6px">${label}</div>
+      <div style="padding:6px 10px;font-size:12px;color:var(--text-3);font-style:italic">None yet</div>`;
+    return `
+      <div style="padding:6px 10px 2px;font-size:11px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--text-3);margin-top:6px">${label}</div>
+      ${list.map(d => `
+        <div class="ws-item ${d.id === _wsActiveDocId ? 'active' : ''}" onclick="wsOpenDoc('${d.id}')">
+          <span class="ws-item-icon">${icon}</span>
+          <span class="ws-item-name">${H.escHtml ? H.escHtml(d.title) : d.title}</span>
+          <span class="ws-item-badge ${d.visibility}">${d.visibility === 'public' ? '⊕' : '⊘'}</span>
+          <span class="ws-item-actions">
+            ${d.ownerId === currentUser.id ? `<button onclick="event.stopPropagation();wsDeleteDoc('${d.id}')" title="Delete">✕</button>` : ''}
+          </span>
+        </div>`).join('')}`;
+  }
+
+  container.innerHTML = `
+    <div class="ws-layout fade-up">
+
+      <!-- Sidebar -->
+      <div class="ws-sidebar">
+        <div class="ws-sidebar-header">
+          <h4>Documents</h4>
+          <button class="btn btn-primary btn-sm" onclick="openNewWsDocModal()" style="font-size:11px;padding:4px 10px">+</button>
+        </div>
+        <div class="ws-list" id="ws-sidebar-list">
+          ${sidebarSection('Notes', noteDocs, '◧')}
+          ${sidebarSection('Mind Maps', mindDocs, '⬡')}
+          ${sidebarSection('Flowcharts', flowDocs, '◈')}
+        </div>
+      </div>
+
+      <!-- Canvas -->
+      <div class="ws-canvas" id="ws-canvas">
+        ${_wsActiveDocId ? wsRenderCanvas(_wsActiveDocId) : `
+          <div class="ws-empty">
+            <div class="ws-empty-icon">◧</div>
+            <h3>Nothing open</h3>
+            <p>Select a document from the sidebar, or create a new one to get started.</p>
+            <button class="btn btn-primary" onclick="openNewWsDocModal()">+ New Document</button>
+          </div>`}
+      </div>
+    </div>`;
+}
+
+// ─── Open a doc ───────────────────────────────
+function wsOpenDoc(id) {
+  if (_wsUnsaved && _wsActiveDocId) {
+    if (!confirm('You have unsaved changes. Discard?')) return;
+  }
+  _wsActiveDocId = id;
+  _wsUnsaved = false;
+  renderWorkspace();
+}
+
+// ─── Canvas renderer (dispatches by type) ────
+function wsRenderCanvas(id) {
+  const docs = wsGetDocs();
+  const doc  = docs.find(d => d.id === id);
+  if (!doc) return `<div class="ws-empty"><div class="ws-empty-icon">⚠</div><p>Document not found.</p></div>`;
+
+  const canEdit = doc.ownerId === currentUser.id || doc.visibility === 'public';
+  const isOwner = doc.ownerId === currentUser.id;
+
+  const toolbar = `
+    <div class="ws-toolbar">
+      <span class="ws-canvas-title">${doc.type === 'note' ? '◧' : doc.type === 'mindmap' ? '⬡' : '◈'} ${doc.title}</span>
+      ${canEdit ? `<button class="ws-tool-btn active" onclick="wsSaveDoc()">💾 Save</button>` : ''}
+      ${isOwner ? `
+        <button class="ws-tool-btn" onclick="wsToggleVisibility('${doc.id}')">
+          ${doc.visibility === 'public' ? '⊘ Make Private' : '⊕ Make Public'}
+        </button>
+        <div class="ws-toolbar-sep"></div>
+        <button class="ws-tool-btn danger" onclick="wsDeleteDoc('${doc.id}')">✕ Delete</button>
+      ` : `<span style="font-size:11px;color:var(--text-3);margin-left:4px">${doc.visibility === 'public' ? '⊕ Public' : '⊘ Private'} · by ${wsOwnerName(doc.ownerId)}</span>`}
+    </div>`;
+
+  if (doc.type === 'note')      return toolbar + wsNoteCanvas(doc, canEdit);
+  if (doc.type === 'mindmap')   return toolbar + wsMindmapCanvas(doc, canEdit);
+  if (doc.type === 'flowchart') return toolbar + wsFlowCanvas(doc, canEdit);
+  return toolbar + `<div class="ws-empty"><p>Unknown document type.</p></div>`;
+}
+
+function wsOwnerName(ownerId) {
+  const u = H.getUserById(ownerId);
+  return u ? u.name.split(' ')[0] : 'Unknown';
+}
+
+// ─── Save dispatcher ──────────────────────────
+function wsSaveDoc() {
+  const doc = wsGetDocs().find(d => d.id === _wsActiveDocId);
+  if (!doc) return;
+  if (doc.type === 'note')      wsSaveNote();
+  if (doc.type === 'mindmap')   wsSaveMindmap();
+  if (doc.type === 'flowchart') wsSaveFlowchart();
+}
+
+// ─── Toggle visibility ────────────────────────
+function wsToggleVisibility(id) {
+  wsSaveDocs(docs => {
+    const d = docs.find(x => x.id === id);
+    if (d && d.ownerId === currentUser.id)
+      d.visibility = d.visibility === 'public' ? 'private' : 'public';
+  });
+  H.notify('Visibility updated', 'success');
+  renderWorkspace();
+}
+
+// ─── Delete doc ───────────────────────────────
+function wsDeleteDoc(id) {
+  if (!confirm('Delete this document? This cannot be undone.')) return;
+  wsSaveDocs(docs => {
+    const idx = docs.findIndex(d => d.id === id);
+    if (idx !== -1) docs.splice(idx, 1);
+  });
+  if (_wsActiveDocId === id) _wsActiveDocId = null;
+  H.notify('Document deleted', 'info');
+  renderWorkspace();
+}
+
+// ═══════════════════════════════════════════════
+//  NOTE EDITOR
+// ═══════════════════════════════════════════════
+function wsNoteCanvas(doc, canEdit) {
+  return `
+    <div class="ws-note-editor">
+      <div class="ws-note-toolbar">
+        <button class="ws-fmt-btn" title="Bold"      onclick="wsFmt('bold')"><b>B</b></button>
+        <button class="ws-fmt-btn" title="Italic"    onclick="wsFmt('italic')"><i>I</i></button>
+        <button class="ws-fmt-btn" title="Underline" onclick="wsFmt('underline')"><u>U</u></button>
+        <button class="ws-fmt-btn" title="Strikethrough" onclick="wsFmt('strikethrough')"><s>S</s></button>
+        <span style="width:1px;height:20px;background:var(--border);margin:0 4px"></span>
+        <button class="ws-fmt-btn" title="H1" onclick="wsFmt('formatBlock','H1')" style="font-size:11px;width:auto;padding:0 6px">H1</button>
+        <button class="ws-fmt-btn" title="H2" onclick="wsFmt('formatBlock','H2')" style="font-size:11px;width:auto;padding:0 6px">H2</button>
+        <button class="ws-fmt-btn" title="H3" onclick="wsFmt('formatBlock','H3')" style="font-size:11px;width:auto;padding:0 6px">H3</button>
+        <span style="width:1px;height:20px;background:var(--border);margin:0 4px"></span>
+        <button class="ws-fmt-btn" title="Bullet list"   onclick="wsFmt('insertUnorderedList')">• —</button>
+        <button class="ws-fmt-btn" title="Ordered list"  onclick="wsFmt('insertOrderedList')" style="font-size:10px;width:auto;padding:0 6px">1.</button>
+        <button class="ws-fmt-btn" title="Blockquote"    onclick="wsFmt('formatBlock','blockquote')">"</button>
+        <button class="ws-fmt-btn" title="Code"          onclick="wsFmt('formatBlock','pre')" style="font-size:10px;width:auto;padding:0 6px">&lt;/&gt;</button>
+        <span style="width:1px;height:20px;background:var(--border);margin:0 4px"></span>
+        <button class="ws-fmt-btn" title="Undo" onclick="document.execCommand('undo')">↩</button>
+        <button class="ws-fmt-btn" title="Redo" onclick="document.execCommand('redo')">↪</button>
+      </div>
+      <div class="ws-note-content"
+        id="note-editor"
+        ${canEdit ? 'contenteditable="true"' : ''}
+        oninput="wsMarkUnsaved()"
+        >${doc.content || ''}</div>
+      <div class="ws-note-status" id="note-status">
+        ${doc.updatedAt ? `Last saved ${H.ago(doc.updatedAt)}` : 'New document — not yet saved'}
+        ${!canEdit ? ' · Read-only' : ''}
+      </div>
+    </div>`;
+}
+
+function wsFmt(cmd, val) {
+  document.execCommand(cmd, false, val || null);
+  document.getElementById('note-editor')?.focus();
+}
+
+function wsMarkUnsaved() {
+  _wsUnsaved = true;
+  const s = document.getElementById('note-status');
+  if (s) s.textContent = 'Unsaved changes…';
+}
+
+function wsSaveNote() {
+  const editor = document.getElementById('note-editor');
+  if (!editor) return;
+  const html = editor.innerHTML;
+  wsSaveDocs(docs => {
+    const d = docs.find(x => x.id === _wsActiveDocId);
+    if (d) { d.content = html; d.updatedAt = new Date().toISOString(); }
+  });
+  _wsUnsaved = false;
+  H.notify('Note saved ✓', 'success');
+  const s = document.getElementById('note-status');
+  if (s) s.textContent = 'Saved just now';
+  // Refresh sidebar only
+  const slist = document.getElementById('ws-sidebar-list');
+  if (slist) { const docs = wsVisibleDocs(); slist.innerHTML = wsRebuildSidebarList(docs); }
+}
+
+// ═══════════════════════════════════════════════
+//  MIND MAP  (radial tree, interactive)
+// ═══════════════════════════════════════════════
+const MM_COLORS = ['#2563eb','#7c3aed','#059669','#d97706','#dc2626','#0891b2','#db2777'];
+
+function wsMindmapCanvas(doc, canEdit) {
+  // doc.nodes = [{id, label, parentId, color, x, y}]
+  const nodes = doc.nodes || [{ id: 'root', label: doc.title, parentId: null, color: MM_COLORS[0], x: 450, y: 300 }];
+  // Ensure stored nodes are used (we re-layout on first open if no positions)
+  _mmLayout(nodes);
+
+  return `
+    <div class="mindmap-svg-container" id="mm-container">
+      ${wsMmSvg(nodes, canEdit)}
+    </div>
+    ${canEdit ? `
+    <div class="mm-controls">
+      <span style="font-size:12px;color:var(--text-3);margin-right:4px">Color:</span>
+      ${MM_COLORS.map((c,i) => `<div class="mm-color-btn" style="background:${c}" onclick="mmSetColor('${c}')" title="${c}"></div>`).join('')}
+      <span class="ws-toolbar-sep"></span>
+      <button class="ws-tool-btn" onclick="mmAddChild()">+ Add Child</button>
+      <button class="ws-tool-btn" onclick="mmAddSibling()">+ Add Sibling</button>
+      <button class="ws-tool-btn danger" onclick="mmDeleteSelected()">✕ Delete Node</button>
+      <span class="ws-toolbar-sep"></span>
+      <span style="font-size:11px;color:var(--text-3)">Click a node to select · Drag to reposition</span>
+    </div>` : ''}`;
+}
+
+function _mmLayout(nodes) {
+  // Auto-layout: root center, children spread radially
+  const root = nodes.find(n => !n.parentId);
+  if (!root) return;
+  if (!root.x) root.x = 450;
+  if (!root.y) root.y = 300;
+  const children = nodes.filter(n => n.parentId === root.id);
+  const angleStep = children.length ? (2 * Math.PI) / children.length : 0;
+  children.forEach((c, i) => {
+    if (c.x === undefined) {
+      c.x = root.x + Math.cos(i * angleStep - Math.PI / 2) * 200;
+      c.y = root.y + Math.sin(i * angleStep - Math.PI / 2) * 150;
+    }
+    // grandchildren
+    const gcs = nodes.filter(n => n.parentId === c.id);
+    gcs.forEach((gc, j) => {
+      if (gc.x === undefined) {
+        const angle = i * angleStep - Math.PI / 2 + (j - (gcs.length-1)/2) * 0.5;
+        gc.x = c.x + Math.cos(angle) * 160;
+        gc.y = c.y + Math.sin(angle) * 100;
+      }
+    });
+  });
+}
+
+let _mmSelectedId = null;
+let _mmDragging   = null;
+let _mmNodes      = null; // live reference while editing
+
+function wsMmSvg(nodes, canEdit) {
+  _mmNodes = nodes;
+  const edges = nodes.filter(n => n.parentId).map(n => {
+    const p = nodes.find(x => x.id === n.parentId);
+    if (!p) return '';
+    return `<path class="mm-edge" d="M${p.x},${p.y} C${(p.x+n.x)/2},${p.y} ${(p.x+n.x)/2},${n.y} ${n.x},${n.y}"/>`;
+  }).join('');
+
+  const nodesSvg = nodes.map(n => {
+    const w = Math.max(100, n.label.length * 9 + 24);
+    const h = 36;
+    const isSelected = n.id === _mmSelectedId;
+    return `
+      <g class="mm-node" data-id="${n.id}"
+        transform="translate(${n.x - w/2},${n.y - h/2})"
+        onclick="mmSelectNode('${n.id}')"
+        ${canEdit ? `
+          onmousedown="mmDragStart(event,'${n.id}',${n.x},${n.y})"
+          ondblclick="mmEditLabel('${n.id}')"
+        ` : ''}>
+        <rect class="mm-node-rect" width="${w}" height="${h}"
+          fill="${n.color || MM_COLORS[0]}"
+          stroke="${isSelected ? '#fff' : 'none'}" stroke-width="${isSelected ? 2 : 0}"
+          opacity="${isSelected ? 1 : 0.92}"/>
+        <text class="mm-node-text" x="${w/2}" y="${h/2}">${n.label}</text>
+      </g>`;
+  }).join('');
+
+  return `
+    <svg class="mindmap-svg" id="mm-svg" width="900" height="600"
+      ${canEdit ? 'onmousemove="mmDragMove(event)" onmouseup="mmDragEnd()"' : ''}>
+      <defs>
+        <marker id="mm-arrow" viewBox="0 0 10 10" refX="8" refY="5"
+          markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#888"/>
+        </marker>
+      </defs>
+      ${edges}
+      ${nodesSvg}
+    </svg>`;
+}
+
+function mmSelectNode(id) {
+  _mmSelectedId = id;
+  _reRenderMm();
+}
+
+function mmDragStart(e, id, ox, oy) {
+  e.stopPropagation();
+  _mmDragging = { id, startX: e.clientX, startY: e.clientY, ox, oy };
+}
+
+function mmDragMove(e) {
+  if (!_mmDragging || !_mmNodes) return;
+  const node = _mmNodes.find(n => n.id === _mmDragging.id);
+  if (!node) return;
+  node.x = _mmDragging.ox + (e.clientX - _mmDragging.startX);
+  node.y = _mmDragging.oy + (e.clientY - _mmDragging.startY);
+  _reRenderMm();
+}
+
+function mmDragEnd() { _mmDragging = null; wsMarkUnsaved(); }
+
+function mmEditLabel(id) {
+  const node = _mmNodes && _mmNodes.find(n => n.id === id);
+  if (!node) return;
+  const newLabel = prompt('Edit node label:', node.label);
+  if (newLabel !== null && newLabel.trim()) {
+    node.label = newLabel.trim();
+    _reRenderMm();
+    wsMarkUnsaved();
+  }
+}
+
+function mmAddChild() {
+  if (!_mmNodes || !_mmSelectedId) { H.notify('Select a node first', 'info'); return; }
+  const parent = _mmNodes.find(n => n.id === _mmSelectedId);
+  if (!parent) return;
+  const label = prompt('Child node label:', 'New Node');
+  if (!label) return;
+  const siblings = _mmNodes.filter(n => n.parentId === parent.id);
+  const angle = (siblings.length * 0.8) - (siblings.length - 1) * 0.4;
+  const newNode = {
+    id: 'mm_' + H.uid(),
+    label: label.trim(),
+    parentId: parent.id,
+    color: parent.color || MM_COLORS[1],
+    x: parent.x + Math.cos(angle) * 180,
+    y: parent.y + Math.sin(angle) * 130
+  };
+  _mmNodes.push(newNode);
+  _mmSelectedId = newNode.id;
+  _reRenderMm();
+  wsMarkUnsaved();
+}
+
+function mmAddSibling() {
+  if (!_mmNodes || !_mmSelectedId) { H.notify('Select a node first', 'info'); return; }
+  const sel = _mmNodes.find(n => n.id === _mmSelectedId);
+  if (!sel || !sel.parentId) { H.notify('Cannot add sibling to root', 'info'); return; }
+  const label = prompt('Sibling node label:', 'New Node');
+  if (!label) return;
+  const parent = _mmNodes.find(n => n.id === sel.parentId);
+  const siblings = _mmNodes.filter(n => n.parentId === sel.parentId);
+  const newNode = {
+    id: 'mm_' + H.uid(),
+    label: label.trim(),
+    parentId: sel.parentId,
+    color: sel.color,
+    x: (parent ? parent.x : sel.x) + (siblings.length * 40),
+    y: sel.y + 100
+  };
+  _mmNodes.push(newNode);
+  _mmSelectedId = newNode.id;
+  _reRenderMm();
+  wsMarkUnsaved();
+}
+
+function mmDeleteSelected() {
+  if (!_mmNodes || !_mmSelectedId) { H.notify('Select a node first', 'info'); return; }
+  if (_mmNodes.find(n => n.id === _mmSelectedId)?.parentId === null) {
+    H.notify('Cannot delete the root node', 'error'); return;
+  }
+  // Remove selected + all descendants
+  function removeTree(id) {
+    const children = _mmNodes.filter(n => n.parentId === id).map(n => n.id);
+    children.forEach(removeTree);
+    const idx = _mmNodes.findIndex(n => n.id === id);
+    if (idx !== -1) _mmNodes.splice(idx, 1);
+  }
+  removeTree(_mmSelectedId);
+  _mmSelectedId = null;
+  _reRenderMm();
+  wsMarkUnsaved();
+}
+
+function mmSetColor(color) {
+  if (!_mmNodes || !_mmSelectedId) { H.notify('Select a node first', 'info'); return; }
+  const node = _mmNodes.find(n => n.id === _mmSelectedId);
+  if (node) { node.color = color; _reRenderMm(); wsMarkUnsaved(); }
+}
+
+function _reRenderMm() {
+  const container = document.getElementById('mm-container');
+  if (!container || !_mmNodes) return;
+  const doc = wsGetDocs().find(d => d.id === _wsActiveDocId);
+  const canEdit = doc && (doc.ownerId === currentUser.id || doc.visibility === 'public');
+  // Only replace SVG (not the controls)
+  const svgWrap = container;
+  svgWrap.innerHTML = wsMmSvg(_mmNodes, canEdit);
+}
+
+function wsSaveMindmap() {
+  if (!_mmNodes) return;
+  wsSaveDocs(docs => {
+    const d = docs.find(x => x.id === _wsActiveDocId);
+    if (d) { d.nodes = JSON.parse(JSON.stringify(_mmNodes)); d.updatedAt = new Date().toISOString(); }
+  });
+  _wsUnsaved = false;
+  H.notify('Mind map saved ✓', 'success');
+}
+
+// ═══════════════════════════════════════════════
+//  FLOWCHART  (drag-and-drop nodes + connectors)
+// ═══════════════════════════════════════════════
+const FLOW_SHAPES = [
+  { id: 'rect',    label: 'Process',   shape: '' },
+  { id: 'rounded', label: 'Start/End', shape: 'shape-rounded' },
+  { id: 'diamond', label: 'Decision',  shape: 'shape-diamond' },
+  { id: 'hex',     label: 'Prep',      shape: 'shape-hex' }
+];
+
+function wsFlowCanvas(doc, canEdit) {
+  // Init flow state from stored doc
+  _flowState = {
+    nodes:      JSON.parse(JSON.stringify(doc.nodes || [])),
+    edges:      JSON.parse(JSON.stringify(doc.edges || [])),
+    dragging:   null,
+    connecting: null,
+    selected:   null,
+    nextId:     (doc.nodes || []).length + 1
+  };
+
+  return `
+    <div class="flow-canvas" id="flow-canvas">
+      <div class="flow-grid"></div>
+      <svg class="flow-svg-layer" id="flow-svg">
+        <defs>
+          <marker id="arrowhead" markerWidth="8" markerHeight="7" refX="8" refY="3.5" orient="auto">
+            <polygon points="0 0, 8 3.5, 0 7" fill="var(--text-3)"/>
+          </marker>
+        </defs>
+        ${_flowRenderEdges()}
+      </svg>
+      ${_flowRenderNodes(canEdit)}
+    </div>
+    ${canEdit ? `
+    <div class="mm-controls" style="background:var(--bg-surface);border-top:1px solid var(--border)">
+      <span style="font-size:12px;color:var(--text-3)">Add:</span>
+      ${FLOW_SHAPES.map(s => `
+        <button class="ws-tool-btn" onclick="flowAddNode('${s.id}','${s.shape}','${s.label}')">+ ${s.label}</button>
+      `).join('')}
+      <span class="ws-toolbar-sep"></span>
+      <button class="ws-tool-btn danger" onclick="flowDeleteSelected()">✕ Delete</button>
+      <span style="font-size:11px;color:var(--text-3);margin-left:8px">Drag node · Drag port to connect · Click edge to delete</span>
+    </div>` : ''}`;
+}
+
+function _flowRenderNodes(canEdit) {
+  return _flowState.nodes.map(n => `
+    <div class="flow-node ${n.id === _flowState.selected ? 'selected' : ''}"
+      id="fn-${n.id}"
+      style="left:${n.x}px;top:${n.y}px"
+      ${canEdit ? `
+        onmousedown="flowNodeDown(event,'${n.id}')"
+        ondblclick="flowEditLabel(event,'${n.id}')"
+        onclick="flowSelectNode('${n.id}')"
+      ` : ''}>
+      <div class="flow-node-body ${n.shapeClass || ''}" style="${n.color ? `border-color:${n.color};` : ''}">${n.label}</div>
+      ${canEdit ? `
+        <div class="flow-node-ports">
+          <div class="flow-port port-t" onmousedown="flowPortDown(event,'${n.id}','t')"></div>
+          <div class="flow-port port-b" onmousedown="flowPortDown(event,'${n.id}','b')"></div>
+          <div class="flow-port port-l" onmousedown="flowPortDown(event,'${n.id}','l')"></div>
+          <div class="flow-port port-r" onmousedown="flowPortDown(event,'${n.id}','r')"></div>
+        </div>` : ''}
+    </div>`).join('');
+}
+
+function _flowRenderEdges() {
+  return _flowState.edges.map(e => {
+    const from = _flowState.nodes.find(n => n.id === e.from);
+    const to   = _flowState.nodes.find(n => n.id === e.to);
+    if (!from || !to) return '';
+    const [x1, y1] = _flowPortCoords(from, e.fromPort);
+    const [x2, y2] = _flowPortCoords(to,   e.toPort);
+    const cx1 = x1 + (e.fromPort === 'l' ? -60 : e.fromPort === 'r' ? 60 : 0);
+    const cy1 = y1 + (e.fromPort === 't' ? -60 : e.fromPort === 'b' ? 60 : 0);
+    const cx2 = x2 + (e.toPort   === 'l' ? -60 : e.toPort   === 'r' ? 60 : 0);
+    const cy2 = y2 + (e.toPort   === 't' ? -60 : e.toPort   === 'b' ? 60 : 0);
+    return `<path class="flow-edge ${e.id === _flowState.selected ? 'selected' : ''}"
+      d="M${x1},${y1} C${cx1},${cy1} ${cx2},${cy2} ${x2},${y2}"
+      data-edge="${e.id}"
+      onclick="flowSelectEdge('${e.id}')" style="pointer-events:stroke"/>`;
+  }).join('');
+}
+
+function _flowPortCoords(node, port) {
+  const el = document.getElementById(`fn-${node.id}`);
+  const W = el ? el.offsetWidth  : 110;
+  const H2 = el ? el.offsetHeight : 44;
+  const offsets = { t: [W/2, 0], b: [W/2, H2], l: [0, H2/2], r: [W, H2/2] };
+  const [dx, dy] = offsets[port] || [W/2, H2/2];
+  return [node.x + dx, node.y + dy];
+}
+
+function _flowRepaint() {
+  const canvas  = document.getElementById('flow-canvas');
+  const svg     = document.getElementById('flow-svg');
+  if (!canvas || !svg) return;
+  // Re-render edges in SVG
+  svg.innerHTML = `
+    <defs>
+      <marker id="arrowhead" markerWidth="8" markerHeight="7" refX="8" refY="3.5" orient="auto">
+        <polygon points="0 0, 8 3.5, 0 7" fill="var(--text-3)"/>
+      </marker>
+    </defs>
+    ${_flowRenderEdges()}`;
+  // Update node selection classes
+  _flowState.nodes.forEach(n => {
+    const el = document.getElementById(`fn-${n.id}`);
+    if (el) el.classList.toggle('selected', n.id === _flowState.selected);
+  });
+}
+
+function flowAddNode(type, shapeClass, labelBase) {
+  const canvas = document.getElementById('flow-canvas');
+  const offsetX = canvas ? (canvas.scrollLeft + 200 + _flowState.nextId * 20) : 200;
+  const offsetY = canvas ? (canvas.scrollTop  + 150 + _flowState.nextId * 10) : 150;
+  const node = {
+    id: 'fn' + _flowState.nextId++,
+    label: labelBase,
+    x: offsetX, y: offsetY,
+    shapeClass, type
+  };
+  _flowState.nodes.push(node);
+  wsMarkUnsaved();
+  // Inject new node div
+  const container = document.getElementById('flow-canvas');
+  if (!container) return;
+  const div = document.createElement('div');
+  div.outerHTML; // noop – use insertAdjacentHTML
+  container.insertAdjacentHTML('beforeend', `
+    <div class="flow-node" id="fn-${node.id}"
+      style="left:${node.x}px;top:${node.y}px"
+      onmousedown="flowNodeDown(event,'${node.id}')"
+      ondblclick="flowEditLabel(event,'${node.id}')"
+      onclick="flowSelectNode('${node.id}')">
+      <div class="flow-node-body ${shapeClass}">${labelBase}</div>
+      <div class="flow-node-ports">
+        <div class="flow-port port-t" onmousedown="flowPortDown(event,'${node.id}','t')"></div>
+        <div class="flow-port port-b" onmousedown="flowPortDown(event,'${node.id}','b')"></div>
+        <div class="flow-port port-l" onmousedown="flowPortDown(event,'${node.id}','l')"></div>
+        <div class="flow-port port-r" onmousedown="flowPortDown(event,'${node.id}','r')"></div>
+      </div>
+    </div>`);
+  flowSelectNode(node.id);
+}
+
+function flowSelectNode(id) {
+  _flowState.selected = id;
+  _flowRepaint();
+}
+
+function flowSelectEdge(id) {
+  _flowState.selected = id;
+  _flowRepaint();
+}
+
+function flowDeleteSelected() {
+  const sel = _flowState.selected;
+  if (!sel) { H.notify('Select a node or edge first', 'info'); return; }
+  // Is it a node?
+  const nIdx = _flowState.nodes.findIndex(n => n.id === sel);
+  if (nIdx !== -1) {
+    _flowState.nodes.splice(nIdx, 1);
+    // Remove connected edges
+    _flowState.edges = _flowState.edges.filter(e => e.from !== sel && e.to !== sel);
+    const el = document.getElementById(`fn-${sel}`);
+    if (el) el.remove();
+  } else {
+    // Edge
+    const eIdx = _flowState.edges.findIndex(e => e.id === sel);
+    if (eIdx !== -1) _flowState.edges.splice(eIdx, 1);
+  }
+  _flowState.selected = null;
+  _flowRepaint();
+  wsMarkUnsaved();
+}
+
+function flowEditLabel(e, id) {
+  e.stopPropagation();
+  const node = _flowState.nodes.find(n => n.id === id);
+  if (!node) return;
+  const label = prompt('Edit label:', node.label);
+  if (label !== null && label.trim()) {
+    node.label = label.trim();
+    const body = document.querySelector(`#fn-${id} .flow-node-body`);
+    if (body) body.textContent = node.label;
+    wsMarkUnsaved();
+  }
+}
+
+// Drag node
+let _flowDragData = null;
+function flowNodeDown(e, id) {
+  if (e.target.classList.contains('flow-port')) return;
+  e.preventDefault();
+  const node = _flowState.nodes.find(n => n.id === id);
+  if (!node) return;
+  _flowDragData = { id, startX: e.clientX, startY: e.clientY, ox: node.x, oy: node.y };
+  document.addEventListener('mousemove', _flowNodeMove);
+  document.addEventListener('mouseup',  _flowNodeUp);
+}
+
+function _flowNodeMove(e) {
+  if (!_flowDragData) return;
+  const node = _flowState.nodes.find(n => n.id === _flowDragData.id);
+  if (!node) return;
+  node.x = Math.max(0, _flowDragData.ox + e.clientX - _flowDragData.startX);
+  node.y = Math.max(0, _flowDragData.oy + e.clientY - _flowDragData.startY);
+  const el = document.getElementById(`fn-${node.id}`);
+  if (el) { el.style.left = node.x + 'px'; el.style.top = node.y + 'px'; }
+  _flowRepaint();
+}
+
+function _flowNodeUp() {
+  _flowDragData = null;
+  wsMarkUnsaved();
+  document.removeEventListener('mousemove', _flowNodeMove);
+  document.removeEventListener('mouseup',   _flowNodeUp);
+}
+
+// Connect via port drag
+let _flowConnData = null;
+function flowPortDown(e, fromId, fromPort) {
+  e.stopPropagation();
+  e.preventDefault();
+  _flowConnData = { fromId, fromPort };
+  document.addEventListener('mouseup', _flowPortUp);
+}
+
+function _flowPortUp(e) {
+  document.removeEventListener('mouseup', _flowPortUp);
+  if (!_flowConnData) return;
+  // Find which node / port was released on
+  const portEl = document.elementFromPoint(e.clientX, e.clientY);
+  if (!portEl || !portEl.classList.contains('flow-port')) { _flowConnData = null; return; }
+  const toNodeEl = portEl.closest('.flow-node');
+  if (!toNodeEl) { _flowConnData = null; return; }
+  const toId = toNodeEl.id.replace('fn-', '');
+  if (toId === _flowConnData.fromId) { _flowConnData = null; return; }
+  // Determine toPort
+  let toPort = 't';
+  if (portEl.classList.contains('port-b')) toPort = 'b';
+  if (portEl.classList.contains('port-l')) toPort = 'l';
+  if (portEl.classList.contains('port-r')) toPort = 'r';
+  _flowState.edges.push({
+    id: 'e' + H.uid(),
+    from: _flowConnData.fromId, fromPort: _flowConnData.fromPort,
+    to: toId, toPort
+  });
+  _flowConnData = null;
+  _flowRepaint();
+  wsMarkUnsaved();
+}
+
+function wsSaveFlowchart() {
+  wsSaveDocs(docs => {
+    const d = docs.find(x => x.id === _wsActiveDocId);
+    if (d) {
+      d.nodes = JSON.parse(JSON.stringify(_flowState.nodes));
+      d.edges = JSON.parse(JSON.stringify(_flowState.edges));
+      d.updatedAt = new Date().toISOString();
+    }
+  });
+  _wsUnsaved = false;
+  H.notify('Flowchart saved ✓', 'success');
+}
+
+// ═══════════════════════════════════════════════
+//  NEW DOCUMENT MODAL
+// ═══════════════════════════════════════════════
+function openNewWsDocModal() {
+  let selectedType = 'note';
+  document.getElementById('modal-title').textContent = 'New Workspace Document';
+  document.getElementById('modal-confirm').textContent = '+ Create';
+  document.getElementById('modal-body').innerHTML = `
+    <div class="ws-type-picker" id="ws-type-picker">
+      <div class="ws-type-card selected" id="wt-note" onclick="wsPickType('note')">
+        <div class="wt-icon">◧</div>
+        <h4>Note</h4>
+        <p>Rich-text notes with formatting, lists &amp; code blocks</p>
+      </div>
+      <div class="ws-type-card" id="wt-mindmap" onclick="wsPickType('mindmap')">
+        <div class="wt-icon">⬡</div>
+        <h4>Mind Map</h4>
+        <p>Visual radial mind map with drag-and-drop nodes</p>
+      </div>
+      <div class="ws-type-card" id="wt-flowchart" onclick="wsPickType('flowchart')">
+        <div class="wt-icon">◈</div>
+        <h4>Flowchart</h4>
+        <p>Drag-and-drop flow diagram with connectors</p>
+      </div>
+    </div>
+    <div class="form-row" style="margin-top:16px">
+      <div class="form-field">
+        <label>Title *</label>
+        <input id="ws-new-title" placeholder="Give your document a name…">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-field">
+        <label>Visibility</label>
+        <select id="ws-new-vis">
+          <option value="private">⊘ Private — only you can see this</option>
+          <option value="public">⊕ Public — all team members can view &amp; edit</option>
+        </select>
+      </div>
+    </div>`;
+
+  document.getElementById('modal-confirm').onclick = () => {
+    const title = document.getElementById('ws-new-title').value.trim();
+    const vis   = document.getElementById('ws-new-vis').value;
+    const type  = wsPickType._current || 'note';
+    if (!title) { H.notify('Enter a title', 'error'); return; }
+    const id = 'wsd_' + H.uid();
+    wsSaveDocs(docs => {
+      docs.push({
+        id, type, title, visibility: vis,
+        ownerId: currentUser.id,
+        content: type === 'note' ? '' : undefined,
+        nodes: type === 'mindmap' ? [{ id: 'root', label: title, parentId: null, color: MM_COLORS[0] }] : undefined,
+        edges: type === 'flowchart' ? [] : undefined,
+        createdAt: new Date().toISOString(),
+        updatedAt: null
+      });
+    });
+    _wsActiveDocId = id;
+    closeModal();
+    H.notify(`${type.charAt(0).toUpperCase()+type.slice(1)} created!`, 'success');
+    renderWorkspace();
+  };
+  openModal();
+}
+
+wsPickType._current = 'note';
+function wsPickType(type) {
+  wsPickType._current = type;
+  ['note','mindmap','flowchart'].forEach(t => {
+    const el = document.getElementById(`wt-${t}`);
+    if (el) el.classList.toggle('selected', t === type);
+  });
+}
+
+// ─── Sidebar HTML rebuild (lightweight) ───────
+function wsRebuildSidebarList(docs) {
+  const noteDocs  = docs.filter(d => d.type === 'note');
+  const mindDocs  = docs.filter(d => d.type === 'mindmap');
+  const flowDocs  = docs.filter(d => d.type === 'flowchart');
+  function section(label, list, icon) {
+    if (!list.length) return `
+      <div style="padding:6px 10px 2px;font-size:11px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--text-3);margin-top:6px">${label}</div>
+      <div style="padding:6px 10px;font-size:12px;color:var(--text-3);font-style:italic">None yet</div>`;
+    return `
+      <div style="padding:6px 10px 2px;font-size:11px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--text-3);margin-top:6px">${label}</div>
+      ${list.map(d => `
+        <div class="ws-item ${d.id === _wsActiveDocId ? 'active' : ''}" onclick="wsOpenDoc('${d.id}')">
+          <span class="ws-item-icon">${icon}</span>
+          <span class="ws-item-name">${d.title}</span>
+          <span class="ws-item-badge ${d.visibility}">${d.visibility === 'public' ? '⊕' : '⊘'}</span>
+          <span class="ws-item-actions">
+            ${d.ownerId === currentUser.id ? `<button onclick="event.stopPropagation();wsDeleteDoc('${d.id}')" title="Delete">✕</button>` : ''}
+          </span>
+        </div>`).join('')}`;
+  }
+  return section('Notes', noteDocs, '◧') + section('Mind Maps', mindDocs, '⬡') + section('Flowcharts', flowDocs, '◈');
+}
