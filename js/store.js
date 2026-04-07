@@ -227,6 +227,7 @@ const defaults = {
       time: '2025-03-09T11:00:00', read: false
     }
   ],
+  wsDocs: [],
   notifications: [],
   company: {
     name: 'Nexus Corporation',
