@@ -26,7 +26,7 @@
 // Set this to your deployed Cloudflare Worker URL.
 // The token lives in Cloudflare as a secret — it is NEVER stored here.
 // localStorage('nexus_worker_url') overrides this (set via Settings UI).
-const WORKER_URL = '';   // ← e.g. 'https://nexus-proxy.yourname.workers.dev'
+const WORKER_URL = 'https://gitnexus.dhanushkrd02.workers.dev/';   // ← e.g. 'https://nexus-proxy.yourname.workers.dev'
 
 function getWorkerUrl() {
   return localStorage.getItem('nexus_worker_url') || WORKER_URL || '';
