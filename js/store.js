@@ -207,26 +207,7 @@ const defaults = {
     { id: 'folder_002', name: 'Engineering', parentId: null, createdBy: 'sa_003', permissions: ['mgr_001', 'emp_001', 'emp_002'] },
     { id: 'folder_003', name: 'Design Assets', parentId: null, createdBy: 'mgr_002', permissions: ['all'] }
   ],
-  messages: [
-    {
-      id: 'msg_001', type: 'private', from: 'emp_001', to: 'emp_002',
-      text: 'Hey Luna, can you review the login page PR?', time: '2025-03-08T09:30:00', read: true
-    },
-    {
-      id: 'msg_002', type: 'private', from: 'emp_002', to: 'emp_001',
-      text: 'Sure Kai! Will check it by EOD.', time: '2025-03-08T09:35:00', read: true
-    },
-    {
-      id: 'msg_003', type: 'public', from: 'sa_001', to: null,
-      text: '📢 All teams: Q1 performance reviews start next week. Please complete your self-assessments by Friday.',
-      time: '2025-03-08T10:00:00', read: false
-    },
-    {
-      id: 'msg_004', type: 'public', from: 'mgr_001', to: null,
-      text: '🚀 Great news! The analytics dashboard project has been marked complete. Congrats to the engineering team!',
-      time: '2025-03-09T11:00:00', read: false
-    }
-  ],
+  messages: [],
   wsDocs: [],
   notifications: [],
   company: {
