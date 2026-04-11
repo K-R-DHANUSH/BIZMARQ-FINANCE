@@ -6,6 +6,101 @@
   <title>Nexus — Dashboard</title>
   <link rel="stylesheet" href="css/main.css">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⬡</text></svg>">
+  <style>
+    /* ── BIZMARQ sidebar entry ── */
+    .biz-section-label {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      color: var(--text-3);
+      padding: 18px 16px 6px;
+      text-transform: uppercase;
+      user-select: none;
+    }
+    .biz-nav-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 14px;
+      border-radius: 9px;
+      cursor: pointer;
+      font-size: 13.5px;
+      font-weight: 500;
+      color: var(--text-2, #555);
+      transition: background 0.15s, color 0.15s;
+      margin: 1px 6px;
+      position: relative;
+    }
+    .biz-nav-item:hover {
+      background: rgba(67,101,90,0.1);
+      color: #43655A;
+    }
+    .biz-nav-icon {
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      background: #43655A;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: 800;
+      flex-shrink: 0;
+      letter-spacing: -0.5px;
+    }
+    .biz-ext-badge {
+      font-size: 9px;
+      padding: 2px 5px;
+      background: rgba(67,101,90,0.12);
+      color: #43655A;
+      border-radius: 4px;
+      font-weight: 700;
+      margin-left: auto;
+      flex-shrink: 0;
+    }
+
+    /* ── BIZMARQ dashboard widget ── */
+    .bizmarq-widget {
+      margin: 20px 0 0 0;
+      background: linear-gradient(135deg, #2d4a41 0%, #43655A 60%, #5a8074 100%);
+      border-radius: 16px;
+      padding: 22px 26px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      flex-wrap: wrap;
+      box-shadow: 0 8px 32px rgba(67,101,90,0.22);
+    }
+    .bw-logo {
+      width: 48px; height: 48px; border-radius: 12px;
+      background: rgba(255,255,255,0.15);
+      border: 1.5px solid rgba(255,255,255,0.25);
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 15px; color: #fff;
+      flex-shrink: 0; letter-spacing: -0.5px;
+    }
+    .bw-title { font-size: 15px; font-weight: 700; color: #fff; line-height: 1.2; }
+    .bw-sub   { font-size: 12px; color: rgba(255,255,255,0.65); margin-top: 2px; }
+    .bw-modules { display: flex; gap: 8px; flex-wrap: wrap; }
+    .bw-mod-btn {
+      padding: 7px 13px; border-radius: 8px;
+      border: 1.5px solid rgba(255,255,255,0.25);
+      background: rgba(255,255,255,0.1);
+      color: #fff; font-size: 12px; font-weight: 600;
+      cursor: pointer; transition: background .15s, transform .15s;
+      font-family: inherit;
+    }
+    .bw-mod-btn:hover { background: rgba(255,255,255,0.22); transform: translateY(-1px); }
+    .bw-open-btn {
+      padding: 10px 20px; border-radius: 10px; border: none;
+      background: #fff; color: #43655A; font-size: 13px; font-weight: 700;
+      cursor: pointer; white-space: nowrap; transition: transform .15s, box-shadow .15s;
+      font-family: inherit; box-shadow: 0 4px 12px rgba(0,0,0,0.15); flex-shrink: 0;
+    }
+    .bw-open-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0,0,0,0.2); }
+  </style>
 </head>
 <body>
 <div class="app-shell">
@@ -16,12 +111,10 @@
       <span class="brand-icon">⬡</span>
       <span class="brand-name">Nexus</span>
     </div>
-
     <div class="header-search">
       <span class="search-icon">⌕</span>
       <input type="text" placeholder="Search people, projects, tasks...">
     </div>
-
     <div class="header-actions">
       <span id="sync-indicator" style="font-size:11px;font-weight:600;padding:4px 10px;border-radius:99px;background:var(--bg-hover);color:var(--text-3);cursor:default;transition:color .3s;white-space:nowrap" title="Data sync status">◌ Local</span>
       <button class="theme-toggle-btn" onclick="toggleTheme()" id="theme-btn" title="Toggle Theme">🌙</button>
@@ -30,7 +123,10 @@
         ◉
         <span class="notif-badge" id="notif-count" style="display:none"></span>
       </button>
-
+      <!-- BIZMARQ quick-launch button in header -->
+      <button class="icon-btn" onclick="openBizmarq()" title="Open BIZMARQ & Finance" style="position:relative">
+        <span style="font-size:11px;font-weight:800;letter-spacing:-0.5px;color:#43655A">BM</span>
+      </button>
       <div class="dropdown">
         <div class="header-user" onclick="toggleUserMenu()">
           <div class="avatar" id="header-avatar">?</div>
@@ -46,6 +142,11 @@
           <div class="dropdown-item" onclick="navigate('calendar')">◷ Calendar</div>
           <div class="dropdown-item" onclick="navigate('settings')">⚙ Settings</div>
           <div class="dropdown-sep"></div>
+          <div class="dropdown-item" onclick="openBizmarq()" style="color:#43655A;font-weight:600">
+            <span style="font-size:11px;font-weight:800;background:#43655A;color:#fff;padding:1px 5px;border-radius:4px;margin-right:4px">BM</span>
+            BIZMARQ & Finance ↗
+          </div>
+          <div class="dropdown-sep"></div>
           <div class="dropdown-item danger" onclick="Auth.logout()">⬡ Sign Out</div>
         </div>
       </div>
@@ -55,6 +156,15 @@
   <!-- ═══ SIDEBAR ═══ -->
   <aside class="app-sidebar">
     <nav id="main-nav"></nav>
+
+    <!-- ── BIZMARQ INTEGRATION ENTRY ── -->
+    <div class="biz-section-label">INTEGRATIONS</div>
+    <div class="biz-nav-item" onclick="openBizmarq()">
+      <div class="biz-nav-icon">BM</div>
+      <span>BIZMARQ & Finance</span>
+      <span class="biz-ext-badge">↗</span>
+    </div>
+
     <div class="sidebar-footer">
       <button class="logout-btn" onclick="Auth.logout()">
         <span>⬡</span> Sign Out
@@ -75,6 +185,25 @@
         <span id="dash-greeting" class="badge badge-muted"></span>
       </div>
       <div class="page-body" id="dashboard-content"></div>
+
+      <!-- ── BIZMARQ WIDGET (always visible on dashboard) ── -->
+      <div class="bizmarq-widget" id="bizmarq-widget">
+        <div style="display:flex;align-items:center;gap:14px">
+          <div class="bw-logo">BM</div>
+          <div>
+            <div class="bw-title">BIZMARQ & Finance</div>
+            <div class="bw-sub">India's B2B Marketplace — integrated with your workspace</div>
+          </div>
+        </div>
+        <div class="bw-modules">
+          <button class="bw-mod-btn" onclick="openBizmarq('index.html')">🏪 Marketplace</button>
+          <button class="bw-mod-btn" onclick="openBizmarq('Tenders.html')">🔨 Tenders</button>
+          <button class="bw-mod-btn" onclick="openBizmarq('Procurement.html')">📋 Procurement</button>
+          <button class="bw-mod-btn" onclick="openBizmarq('Finance.html')">📊 Finance</button>
+          <button class="bw-mod-btn" onclick="openBizmarq('Investors.html')">💼 Investors</button>
+        </div>
+        <button class="bw-open-btn" onclick="openBizmarq()">Open Platform ↗</button>
+      </div>
     </div>
 
     <!-- Organization -->
@@ -134,9 +263,7 @@
       <div class="page-body" id="files-content"></div>
     </div>
 
-    <!-- PASTE THIS BLOCK inside <main class="app-main"> in app.html, alongside the other page divs -->
-
-    <!-- Workspace (Notes, Mindmaps, Flowcharts) -->
+    <!-- Workspace -->
     <div id="page-workspace" class="page">
       <div class="page-header">
         <div>
@@ -234,13 +361,25 @@
   </div>
 </div>
 
-<!-- Toast Container -->
 <div id="toast-container"></div>
 
 <script src="js/store.js"></script>
 <script src="js/app.js"></script>
+
 <script>
-  // Theme management
+  /* ─────────────────────────────────────────────
+     BIZMARQ INTEGRATION
+  ───────────────────────────────────────────── */
+  const BIZMARQ_BASE = 'https://k-r-dhanush.github.io/BIZFINANCE-WEBSITE-DEMO.github.io/';
+
+  function openBizmarq(page) {
+    const url = page ? BIZMARQ_BASE + page : BIZMARQ_BASE;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
+
+  /* ─────────────────────────────────────────────
+     THEME
+  ───────────────────────────────────────────── */
   function applyTheme(theme) {
     document.documentElement.setAttribute('data-theme', theme);
     const btn = document.getElementById('theme-btn');
@@ -250,26 +389,24 @@
     const current = document.documentElement.getAttribute('data-theme') || 'light';
     const next = current === 'dark' ? 'light' : 'dark';
     applyTheme(next);
-    // Save to user prefs in store
     Store.set(data => {
       const u = data.users.find(x => x.id === currentUser?.id);
       if (u) u.theme = next;
       return data;
     });
-    // Also save to localStorage for persistence before auth
     localStorage.setItem('nexus_theme', next);
   }
-  // Apply saved theme immediately
   const savedTheme = localStorage.getItem('nexus_theme') || 'light';
   applyTheme(savedTheme);
 
-  // Greeting
+  /* ─────────────────────────────────────────────
+     GREETING
+  ───────────────────────────────────────────── */
   const hour = new Date().getHours();
   const greet = hour < 12 ? 'Good Morning' : hour < 18 ? 'Good Afternoon' : 'Good Evening';
   document.addEventListener('DOMContentLoaded', () => {
     const el = document.getElementById('dash-greeting');
     if (el && currentUser) el.textContent = `${greet}, ${currentUser.name.split(' ')[0]} 👋`;
-    // Apply user's saved theme
     const userTheme = currentUser?.theme || savedTheme;
     applyTheme(userTheme);
   });
